@@ -1,33 +1,26 @@
-import { HeroState } from '../models/Hero';
+import { OctagonBoard } from '../core/OctagonBoard';
 import { DragonState, dragonIsDead } from '../models/Dragon';
+import { BlockType } from '../config/blockTypes';
 import { EventBus } from '../core/EventBus';
 
-export type GameEndReason = 'hero_died' | null;
-
 export class WinLossSystem {
-  checkGameOver(hero: HeroState): GameEndReason {
-    if (!hero.isAlive) {
-      EventBus.emit('gameOver', { reason: 'hero_died' });
-      return 'hero_died';
+  /** 检查村庄是否存活 */
+  checkVillageAlive(board: OctagonBoard): boolean {
+    const vs = board.findSector(b => b?.type === BlockType.VILLAGE);
+    if (vs === null) {
+      EventBus.emit('gameOver', { reason: 'village_destroyed' });
+      return false;
     }
-    return null;
+    return true;
   }
 
   checkAllDragonsDead(dragons: DragonState[]): boolean {
     return dragons.length > 0 && dragons.every(d => dragonIsDead(d));
   }
 
-  checkDecisiveBattleEnd(
-    dragons: DragonState[],
-    survivalTurns: number,
-    currentSurvivalTurns: number,
-  ): 'all_dead' | 'survived' | null {
-    if (this.checkAllDragonsDead(dragons)) {
-      return 'all_dead';
-    }
-    if (currentSurvivalTurns >= survivalTurns) {
-      return 'survived';
-    }
+  checkDecisiveBattleEnd(dragons: DragonState[], survivalTurns: number, currentTurns: number): 'all_dead' | 'survived' | null {
+    if (this.checkAllDragonsDead(dragons)) return 'all_dead';
+    if (currentTurns >= survivalTurns) return 'survived';
     return null;
   }
 }

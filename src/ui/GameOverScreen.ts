@@ -12,8 +12,8 @@ export class GameOverScreen {
     this.container.visible = false;
     renderer.getLayer(6).addChild(this.container);
 
-    const w = GAME_CONSTANTS.SCREEN_WIDTH;
-    const h = GAME_CONSTANTS.SCREEN_HEIGHT;
+    const w = this.renderer.screenW;
+    const h = this.renderer.screenH;
 
     // Overlay
     const overlay = new Graphics();
@@ -34,8 +34,8 @@ export class GameOverScreen {
     this.container.removeChildren();
     this.container.visible = true;
 
-    const w = GAME_CONSTANTS.SCREEN_WIDTH;
-    const h = GAME_CONSTANTS.SCREEN_HEIGHT;
+    const w = this.renderer.screenW;
+    const h = this.renderer.screenH;
 
     // Overlay
     const overlay = new Graphics();

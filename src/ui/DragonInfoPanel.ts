@@ -83,7 +83,7 @@ export class DragonInfoPanel {
     // Announced targets (arrogant)
     if (dragon.announcedTargets && dragon.announcedTargets.length > 0) {
       const annText = new Text({
-        text: `预告攻击: ${dragon.announcedTargets.map(p => `[${p.row},${p.col}]`).join(' ')}`,
+        text: `预告攻击: 扇形 ${dragon.announcedTargets.join(', ')}`,
         style: { fontFamily: 'monospace', fontSize: 10, fill: 0xff4444 },
       });
       annText.position.set(10, 82);

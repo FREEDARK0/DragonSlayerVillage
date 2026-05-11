@@ -16,8 +16,8 @@ export class PhaseAnnouncement {
     this.container.visible = false;
     renderer.getLayer(6).addChild(this.container);
 
-    const w = GAME_CONSTANTS.SCREEN_WIDTH;
-    const h = GAME_CONSTANTS.SCREEN_HEIGHT;
+    const w = this.renderer.screenW;
+    const h = this.renderer.screenH;
 
     this.bg = new Graphics();
     this.bg.rect(0, h / 2 - 40, w, 80);

@@ -3,30 +3,52 @@ import { GameRenderer } from './GameRenderer';
 import { DragonState } from '../models/Dragon';
 import { DragonPersonalityType } from '../config/dragonTypes';
 import { GAME_CONSTANTS } from '../config/constants';
+import { SECTOR_COUNT, edgeBreathSectors, sectorStartAngle, sectorEndAngle } from '../utils/SectorUtils';
+
+/** 根据龙的性格返回吐息威力 */
+function getBreathPower(dragon: DragonState): number {
+  switch (dragon.personality) {
+    case DragonPersonalityType.ARROGANT: return dragon.turnCounter % 2 === 0 ? 3 : 2;
+    case DragonPersonalityType.DESTRUCTIVE: return dragon.turnCounter % 2 === 0 ? 2 : 1;
+    default: return 1;
+  }
+}
 
 export class DragonRenderer {
   private container: Container;
   private dragonGraphics: Map<string, Container> = new Map();
+  private previewOutline: Graphics;
+  private rotationDeg = 0;
 
   constructor(private renderer: GameRenderer) {
     this.container = new Container();
     this.container.label = 'DragonRenderer';
     this.container.eventMode = 'static';
     renderer.getLayer(4).addChild(this.container);
+
+    this.previewOutline = new Graphics();
+    this.previewOutline.label = 'DragonPreviewOutline';
+    renderer.getLayer(3).addChild(this.previewOutline);
   }
 
   /** 清除所有龙 */
   clear(): void {
     this.container.removeChildren();
     this.dragonGraphics.clear();
+    this.previewOutline.clear();
   }
 
   /** 渲染所有龙立绘在上半圆弧上 */
-  render(dragons: DragonState[]): void {
+  render(dragons: DragonState[], rotationDeg: number = 0, nightStart?: number, nightLen?: number): void {
+    const nightSet = new Set<number>();
+    if (nightStart !== undefined && nightLen !== undefined) {
+      for (let i = 0; i < nightLen; i++) nightSet.add((nightStart + i) % 8);
+    }
+    this.rotationDeg = rotationDeg;
     const alive = dragons.filter(d => d.isAlive);
-    const gridTotalSize = GAME_CONSTANTS.GRID_SIZE * GAME_CONSTANTS.CELL_SIZE;
-    const gridCenterX = this.renderer.gridOriginX + gridTotalSize / 2;
-    const gridTopY = this.renderer.gridOriginY;
+    const cx = this.renderer.octagonCenterX;
+    const cy = this.renderer.octagonCenterY;
+    const R = this.renderer.octagonRadius;
 
     // Remove dead dragons
     for (const [id, g] of this.dragonGraphics) {
@@ -36,17 +58,20 @@ export class DragonRenderer {
       }
     }
 
-    // Arc parameters
-    const arcRadius = gridTotalSize * 0.65;
-    const arcCenterX = gridCenterX;
-    const arcCenterY = gridTopY + gridTotalSize * 0.4;
-    const startAngle = Math.PI * 0.15;
-    const endAngle = Math.PI * 0.85;
+    // Position dragons at octagon vertices (slightly outside)
+    const outerR = R * 1.25;
 
-    alive.forEach((dragon, i) => {
-      const angle = startAngle + (endAngle - startAngle) * (i + 1) / (alive.length + 1);
-      const x = arcCenterX - Math.cos(angle) * arcRadius;
-      const y = arcCenterY - Math.sin(angle) * arcRadius;
+    alive.forEach((dragon) => {
+      // All dragons on edges (midpoint between two vertices)
+      const a1 = (dragon.edgeIndex * Math.PI) / 4;
+      const a2 = ((dragon.edgeIndex + 1) * Math.PI) / 4;
+      const ma = (a1 + a2) / 2;
+      const x = cx + Math.cos(ma) * outerR;
+      const y = cy + Math.sin(ma) * outerR;
+
+      // Night: edge i adjacent to sectors i and i-1
+      const inNight = nightSet.has(dragon.edgeIndex) || nightSet.has((dragon.edgeIndex - 1 + 8) % 8);
+      const dAlpha = inNight ? 0.25 : 1;
 
       let dContainer = this.dragonGraphics.get(dragon.id);
       if (!dContainer) {
@@ -57,11 +82,11 @@ export class DragonRenderer {
 
         dContainer.on('pointerover', () => {
           dContainer!.scale.set(1.1);
-          this.drawHighlight(dContainer!, dragon);
+          this.drawPreviewOutline(dragon);
         });
         dContainer.on('pointerout', () => {
           dContainer!.scale.set(1.0);
-          this.redrawDragon(dContainer!, dragon);
+          this.previewOutline.clear();
         });
 
         this.container.addChild(dContainer);
@@ -69,6 +94,7 @@ export class DragonRenderer {
       }
 
       dContainer.position.set(x, y);
+      dContainer.alpha = dAlpha;
       this.redrawDragon(dContainer, dragon);
     });
   }
@@ -88,6 +114,12 @@ export class DragonRenderer {
         break;
       case DragonPersonalityType.DESTRUCTIVE:
         this.drawDestructiveDragon(g, size, dragon.color);
+        break;
+      case DragonPersonalityType.GOLD:
+        this.drawGoldDragon(g, size, dragon.color);
+        break;
+      case DragonPersonalityType.BRUTAL:
+        this.drawBrutalDragon(g, size, dragon.color);
         break;
     }
 
@@ -115,6 +147,93 @@ export class DragonRenderer {
 
     container.addChild(g);
     container.addChild(nameText);
+  }
+
+  /** 鼠标悬停时绘制龙将要攻击的区域轮廓 */
+  private drawPreviewOutline(dragon: DragonState): void {
+    this.previewOutline.clear();
+    const cx = this.renderer.octagonCenterX;
+    const cy = this.renderer.octagonCenterY;
+    const R = this.renderer.octagonRadius;
+    const rotSteps = Math.round(this.rotationDeg / 45);
+
+    const power = getBreathPower(dragon);
+    const logicalEdge = ((dragon.edgeIndex - rotSteps) % 8 + 8) % 8;
+    const sectors = edgeBreathSectors(logicalEdge, power);
+
+    // Sort for outline drawing
+    const sorted = [...sectors].sort((a, b) => a - b);
+    const startA = sectorStartAngle(sorted[0], this.rotationDeg);
+    const endA = sectorEndAngle(sorted[sorted.length - 1], this.rotationDeg);
+
+    this.previewOutline.moveTo(cx, cy);
+    this.previewOutline.lineTo(cx + Math.cos(startA) * R, cy + Math.sin(startA) * R);
+    for (const s of sorted) {
+      const a = sectorEndAngle(s, this.rotationDeg);
+      this.previewOutline.lineTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R);
+    }
+    this.previewOutline.lineTo(cx, cy);
+    this.previewOutline.closePath();
+    this.previewOutline.stroke({ width: 4, color: 0xff4444, alpha: 0.85, join: 'round' });
+  }
+
+  private drawGoldDragon(g: Graphics, size: number, color: number): void {
+    // Sleek serpentine body with treasure aura
+    g.ellipse(0, size * 0.1, size * 0.35, size * 0.7);
+    g.fill(color);
+    g.stroke({ width: 1.5, color: 0xffdd44 });
+    // Coins around
+    for (let i = 0; i < 4; i++) {
+      const a = i * Math.PI / 2;
+      g.circle(Math.cos(a) * size * 0.5, Math.sin(a) * size * 0.5, size * 0.12);
+      g.fill(0xffdd44);
+    }
+    // Eye
+    g.circle(0, -size * 0.2, size * 0.1);
+    g.fill(0xffffff);
+  }
+
+  private drawBrutalDragon(g: Graphics, size: number, color: number): void {
+    // Heavy muscular body
+    g.ellipse(0, -size * 0.05, size * 0.5, size * 0.65);
+    g.fill(color);
+    g.stroke({ width: 2, color: 0xff0000 });
+    // Spikes
+    for (let i = 0; i < 5; i++) {
+      const a = -Math.PI / 2 + i * Math.PI / 4;
+      g.poly([Math.cos(a) * size * 0.4, Math.sin(a) * size * 0.6, Math.cos(a) * size * 0.7, Math.sin(a) * size * 0.95, Math.cos(a) * size * 0.5, Math.sin(a) * size * 0.55]);
+      g.fill(0x880000);
+    }
+    // Glowing eyes
+    g.circle(-size * 0.15, -size * 0.25, size * 0.13);
+    g.fill(0xff4400);
+    g.circle(size * 0.15, -size * 0.25, size * 0.13);
+    g.fill(0xff4400);
+  }
+
+  /** 龙攻击动画：缓慢放大→停顿→缓慢缩小 */
+  animateAttack(dragonId: string): void {
+    const dContainer = this.dragonGraphics.get(dragonId);
+    if (!dContainer) return;
+
+    let frame = 0;
+    const tick = () => {
+      frame++;
+      if (frame <= 40) {
+        const t = frame / 40;
+        const s = 1 + 0.4 * Math.sin(t * Math.PI / 2);
+        dContainer.scale.set(s);
+      } else if (frame <= 80) {
+      } else if (frame <= 120) {
+        const t = (frame - 80) / 40;
+        const s = 1.4 - 0.4 * Math.sin(t * Math.PI / 2);
+        dContainer.scale.set(s);
+      } else {
+        dContainer.scale.set(1);
+        this.renderer.app.ticker.remove(tick);
+      }
+    };
+    this.renderer.app.ticker.add(tick);
   }
 
   private drawHighlight(container: Container, dragon: DragonState): void {

@@ -1,17 +1,6 @@
-import { Grid } from '../models/Grid';
-import { HeroState, createHero } from '../models/Hero';
+import { OctagonBoard } from './OctagonBoard';
+import { HeroState } from '../models/Hero';
 import { DragonState } from '../models/Dragon';
-import { VisionFrame } from '../models/VisionFrame';
-import { GridPosition } from '../utils/GridPosition';
-import { GAME_CONSTANTS } from '../config/constants';
-
-export enum GamePhase {
-  CALM = 'calm',
-  HARASSMENT = 'harassment',
-  DECISIVE_BATTLE = 'decisive_battle',
-  YEAR_TRANSITION = 'year_transition',
-  GAME_OVER = 'game_over',
-}
 
 export enum TurnState {
   WAITING_FOR_INPUT = 'waiting_for_input',
@@ -20,39 +9,35 @@ export enum TurnState {
 }
 
 export class GameState {
-  grid: Grid;
-  hero: HeroState;
-  heroPos: GridPosition;
+  board: OctagonBoard;
+  hero: HeroState = { heroSector: 0 };
   dragons: DragonState[] = [];
-  visionFrame: VisionFrame | null = null;
+  rotationAngle: number = 0;
+  turnRotationSteps: number = 0;
 
-  phase: GamePhase = GamePhase.CALM;
+  /** 村庄（中心小八边形，不在扇区中） */
+  villagePower: number = 50;
+  villageLevel: number = 0;
+
+  /** 黑夜系统 */
+  nightStartSector: number = 0;
+  nightLength: number = 1;
+  nightGrowing: boolean = true;
+
   turnState: TurnState = TurnState.WAITING_FOR_INPUT;
   turnNumber: number = 0;
-  turnsInPhase: number = 0;
   year: number = 1;
-  decisiveBattleSurvivalTurns: number = 0;
 
   messages: string[] = [];
-  lastPhaseMessage: string = '';
-
   gameOver: boolean = false;
   gameOverReason: string = '';
 
-  constructor() {
-    this.grid = new Grid(GAME_CONSTANTS.GRID_SIZE);
-    this.hero = createHero();
-    this.heroPos = new GridPosition(0, 0);
-  }
+  constructor() { this.board = new OctagonBoard(); }
 
-  get aliveDragons(): DragonState[] {
-    return this.dragons.filter(d => d.isAlive);
-  }
+  get aliveDragons(): DragonState[] { return this.dragons.filter(d => d.isAlive); }
 
   addMessage(msg: string): void {
     this.messages.unshift(msg);
-    if (this.messages.length > 5) {
-      this.messages.length = 5;
-    }
+    if (this.messages.length > 5) this.messages.length = 5;
   }
 }

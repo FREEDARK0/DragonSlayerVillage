@@ -1,79 +1,54 @@
 import { GameRenderer } from './rendering/GameRenderer';
-import { GridRenderer } from './rendering/GridRenderer';
+import { OctagonRenderer } from './rendering/OctagonRenderer';
 import { BlockRenderer } from './rendering/BlockRenderer';
-import { VisionFrameRenderer } from './rendering/VisionFrameRenderer';
 import { DragonRenderer } from './rendering/DragonRenderer';
 import { EffectRenderer } from './rendering/EffectRenderer';
 import { HUD } from './ui/HUD';
 import { DragonInfoPanel } from './ui/DragonInfoPanel';
 import { PhaseAnnouncement } from './ui/PhaseAnnouncement';
 import { GameOverScreen } from './ui/GameOverScreen';
+import { ShopPanel } from './ui/ShopPanel';
 import { InputManager } from './input/InputManager';
 import { GameState, TurnState } from './core/GameState';
 import { TurnManager } from './core/TurnManager';
-import { PhaseManager } from './core/PhaseManager';
 import { EventBus } from './core/EventBus';
-import { GAME_CONSTANTS } from './config/constants';
-import { GamePhase } from './core/GameState';
+import { BlockType, getVillageLevel } from './config/blockTypes';
 
 export class Game {
   private renderer: GameRenderer;
-  private gridRenderer!: GridRenderer;
+  private octagonRenderer!: OctagonRenderer;
   private blockRenderer!: BlockRenderer;
-  private visionFrameRenderer!: VisionFrameRenderer;
   private dragonRenderer!: DragonRenderer;
   private effectRenderer!: EffectRenderer;
   private hud!: HUD;
   private dragonInfoPanel!: DragonInfoPanel;
   private phaseAnnouncement!: PhaseAnnouncement;
   private gameOverScreen!: GameOverScreen;
+  private shopPanel!: ShopPanel;
   private inputManager!: InputManager;
-
-  private state: GameState;
+  private state!: GameState;
   private turnManager!: TurnManager;
-  private phaseManager!: PhaseManager;
 
-  constructor() {
-    this.renderer = new GameRenderer();
-    this.state = new GameState();
-  }
+  constructor() { this.renderer = new GameRenderer(); }
 
   async init(): Promise<void> {
     await this.renderer.init();
-
-    // Create renderers
-    this.gridRenderer = new GridRenderer(this.renderer);
+    this.octagonRenderer = new OctagonRenderer(this.renderer);
     this.blockRenderer = new BlockRenderer(this.renderer);
-    this.visionFrameRenderer = new VisionFrameRenderer(this.renderer);
     this.dragonRenderer = new DragonRenderer(this.renderer);
     this.effectRenderer = new EffectRenderer(this.renderer);
-
-    // Create UI
     this.hud = new HUD(this.renderer);
     this.dragonInfoPanel = new DragonInfoPanel(this.renderer);
     this.phaseAnnouncement = new PhaseAnnouncement(this.renderer);
     this.gameOverScreen = new GameOverScreen(this.renderer);
-
-    // Create input
-    this.inputManager = new InputManager(this.renderer);
-
-    // Create managers
-    this.phaseManager = new PhaseManager(this.state);
-    this.turnManager = new TurnManager(this.state, this.phaseManager);
-
-    // Setup event listeners
+    this.shopPanel = new ShopPanel(this.renderer);
+    this.inputManager = new InputManager();
+    this.shopPanel.onBuyWall = () => this.buyWoodWall();
     this.setupEvents();
-
-    // Start game
     this.startGame();
-
-    // Use requestAnimationFrame for animation-only updates (lightweight)
     const animate = () => {
       this.effectRenderer.update();
-      // Only re-render if animations are active
-      if (this.effectRenderer.blockAnims.size > 0) {
-        this.renderAll();
-      }
+      if (this.effectRenderer.blockAnims.size > 0) this.renderAll();
       requestAnimationFrame(animate);
     };
     requestAnimationFrame(animate);
@@ -81,117 +56,118 @@ export class Game {
 
   private startGame(): void {
     this.state = new GameState();
-    this.phaseManager = new PhaseManager(this.state);
-    this.turnManager = new TurnManager(this.state, this.phaseManager);
-
+    this.turnManager = new TurnManager(this.state);
     this.turnManager.initWorld();
-    this.phaseManager.initPhase();
-
     this.dragonRenderer.clear();
     this.effectRenderer.clear();
-
+    this.gameOverScreen.hide();
     this.renderAll();
     this.enableInput();
   }
 
   private setupEvents(): void {
-    EventBus.on('phaseChanged', (payload: { phase: GamePhase; year: number; message: string }) => {
+    EventBus.on('phaseChanged', (payload: { message: string }) => {
       this.phaseAnnouncement.show(payload.message);
-      // Handle year transitions
-      if (payload.phase === GamePhase.YEAR_TRANSITION) {
-        setTimeout(() => {
-          this.turnManager.handleYearTransition();
-          this.spawnDragonsForNewPhase();
-          this.renderAll();
-          this.enableInput();
-        }, 2000);
-      }
     });
-
     EventBus.on('gameOver', (payload: { reason: string }) => {
-      this.inputManager.disable();
-      this.gameOverScreen.show(
-        this.state.turnNumber,
-        this.state.year,
-        payload.reason,
-        () => this.startGame(),
-      );
+      this.inputManager.disable(this.renderer.app.canvas as HTMLCanvasElement);
+      this.gameOverScreen.show(this.state.turnNumber, this.state.year, payload.reason, () => this.startGame());
     });
-
-    EventBus.on('dragonAttacked', (payload: { dragonId: string; positions: any[]; actionType: string }) => {
-      if (payload.actionType !== 'summon_imp') {
-        this.effectRenderer.triggerScreenFlash(0xff4444, 15);
-        this.effectRenderer.showAttackHighlight(payload.positions, 30);
+    EventBus.on('dragonAttacked', (payload: { dragonId: string; sectors: number[]; actionType: string }) => {
+      if (payload.actionType === 'summon_imp') return;
+      this.dragonRenderer.animateAttack(payload.dragonId);
+      this.effectRenderer.triggerScreenFlash(0xff4444, 12);
+      const sectors = payload.sectors;
+      const waveCount = sectors.length / 2;
+      for (let wave = 0; wave < waveCount; wave++) {
+        setTimeout(() => {
+          const mid = sectors.length / 2;
+          const left = sectors[mid - 1 - wave];
+          const right = sectors[mid + wave];
+          for (const s of [left, right]) {
+            if (s !== undefined) {
+              this.effectRenderer.startBounce(s);
+              this.effectRenderer.flashSector(s, this.state.rotationAngle);
+            }
+          }
+          this.renderAll();
+        }, wave * 600);
       }
+      setTimeout(() => { this.turnManager.triggerBlockEffects(sectors); this.renderAll(); }, waveCount * 600 + 600);
     });
-
-    EventBus.on('blockDestroyed', (payload: { position: any; blockType: string; value: number }) => {
-      this.effectRenderer.startShrink(payload.position);
-      this.effectRenderer.showFloatingText(payload.position, 'X', 0xff6666);
-    });
-
-    EventBus.on('blockReplenished', (payload: { position: any }) => {
-      this.effectRenderer.startGrow(payload.position);
-    });
-
-    EventBus.on('visionEffectApplied', (payload: { position: any; message: string; color: number }) => {
-      this.effectRenderer.startBounce(payload.position);
-      this.effectRenderer.showFloatingText(payload.position, payload.message, payload.color);
-    });
-
-    EventBus.on('heroDamaged', (payload: { damage: number; remainingPower: number }) => {
-      this.effectRenderer.triggerScreenFlash(0xffffff, 10);
+    EventBus.on('blockDestroyed', (payload: { sector: number }) => {
+      this.effectRenderer.startShrink(payload.sector);
+      this.effectRenderer.showFloatingText(payload.sector, 'X', 0xff6666);
     });
   }
 
   private enableInput(): void {
-    this.inputManager.enable();
-
-    this.inputManager.onFrameMove((frame) => {
+    const canvas = this.renderer.app.canvas as HTMLCanvasElement;
+    this.inputManager.enable(canvas, this.renderer.octagonCenterX, this.renderer.octagonCenterY, this.renderer.octagonRadius);
+    this.inputManager.onRotate((delta) => {
       if (this.state.turnState !== TurnState.WAITING_FOR_INPUT) return;
-      this.state.visionFrame = frame;
+      this.state.rotationAngle = ((this.state.rotationAngle + delta) % 360 + 360) % 360;
+      this.state.turnRotationSteps += delta / 45;
       this.renderAll();
     });
-
-    this.inputManager.onConfirm((frame) => {
-      if (this.state.turnState !== TurnState.WAITING_FOR_INPUT) return;
+    this.inputManager.onConfirm(() => {
       if (this.state.gameOver) return;
 
-      this.inputManager.disable();
-      this.turnManager.executeTurn(frame);
-      this.renderAll();
+      if (this.placementMode) {
+        const sector = this.inputManager.getCurrentSector();
+        if (sector !== null && this.state.board.isEmpty(sector)) {
+          const level = getVillageLevel(this.state.board.villagePower);
+          const power = level >= 2 ? 50 : 10;
+          this.state.board.setSector(sector, { id: Date.now(), type: BlockType.WOOD_WALL, value: power, power, shielded: false, attribute: null });
+          this.placementMode = false;
+          this.state.addMessage('木墙已放置');
+        }
+        this.renderAll();
+        return;
+      }
 
-      // Re-enable input after a short delay (unless game over or year transition)
-      if (!this.state.gameOver && this.state.phase !== GamePhase.YEAR_TRANSITION) {
-        setTimeout(() => {
-          if (!this.state.gameOver && this.state.phase !== GamePhase.YEAR_TRANSITION) {
-            this.enableInput();
-            this.renderAll();
-          }
-        }, 600);
+      if (this.state.turnState !== TurnState.WAITING_FOR_INPUT) return;
+      this.inputManager.disable(canvas);
+      this.turnManager.executeTurn();
+      this.renderAll();
+      if (!this.state.gameOver) {
+        setTimeout(() => { if (!this.state.gameOver) { this.enableInput(); this.renderAll(); } }, 600);
       }
     });
   }
 
-  private spawnDragonsForNewPhase(): void {
-    // Spawn initial dragons based on current phase
-    const phase = this.state.phase;
-    if (phase === GamePhase.HARASSMENT || phase === GamePhase.DECISIVE_BATTLE) {
-      // TurnManager will handle spawning when entering these phases
+  private placementMode = false;
+
+  private buyWoodWall(): void {
+    if (this.state.board.villagePower < 5) return;
+    this.state.board.villagePower -= 5;
+    const level = getVillageLevel(this.state.board.villagePower);
+    let power: number;
+    if (level >= 2) power = 50;
+    else if (level >= 1) power = 25;
+    else power = 10;
+
+    if (level >= 2) {
+      // Manual placement mode
+      this.placementMode = true;
+      this.state.addMessage('点击一个空三角形放置木墙');
+    } else {
+      // Random empty sector
+      const empty = this.state.board.getEmptySectors();
+      if (empty.length > 0) {
+        const s = empty[Math.floor(Math.random() * empty.length)];
+        this.state.board.setSector(s, { id: Date.now(), type: BlockType.WOOD_WALL, value: power, power, shielded: false, attribute: null });
+      }
     }
+    this.renderAll();
   }
 
   private renderAll(): void {
-    this.gridRenderer.render(this.state.grid, this.state.heroPos);
-    this.blockRenderer.render(this.state.grid, this.effectRenderer.blockAnims);
-    this.visionFrameRenderer.render(this.state.visionFrame);
-    this.dragonRenderer.render(this.state.aliveDragons);
-    this.hud.update(
-      this.state.hero,
-      this.state.turnNumber,
-      this.state.year,
-      this.state.phase,
-      this.state.messages,
-    );
+    this.octagonRenderer.render(this.state.board, this.state.hero.heroSector, this.state.rotationAngle, this.state.nightStartSector, this.state.nightLength);
+    this.blockRenderer.render(this.state.board, this.effectRenderer.blockAnims, this.state.rotationAngle, this.state.nightStartSector, this.state.nightLength);
+    this.dragonRenderer.render(this.state.aliveDragons, this.state.rotationAngle, this.state.nightStartSector, this.state.nightLength);
+    const villagePower = this.state.board.villagePower;
+    const villageLevel = getVillageLevel(villagePower);
+    this.hud.update(villagePower, villageLevel, this.state.turnNumber, this.state.year, 'calm' as any, this.state.messages, this.state.rotationAngle);
   }
 }

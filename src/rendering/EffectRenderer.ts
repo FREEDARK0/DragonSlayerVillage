@@ -1,7 +1,7 @@
 import { Container, Graphics, Text } from 'pixi.js';
 import { GameRenderer } from './GameRenderer';
-import { GridPosition } from '../utils/GridPosition';
 import { GAME_CONSTANTS } from '../config/constants';
+import { sectorStartAngle, sectorEndAngle, SECTOR_COUNT } from '../utils/SectorUtils';
 
 // --- Animation types ---
 export type AnimType = 'bounce' | 'shrink' | 'grow';
@@ -49,31 +49,31 @@ export class EffectRenderer {
 
   // ─── Public API ───────────────────────────
 
-  /** 视野框触发——弹性回弹动画 */
-  startBounce(pos: GridPosition): void {
-    this.blockAnims.set(pos.key(), { type: 'bounce', progress: 0, duration: 28, scaleX: 1, scaleY: 1, alpha: 1 });
+  /** 视野框触发——弹性回弹动画 (慢速) */
+  startBounce(sector: number): void {
+    this.blockAnims.set(`${sector}`, { type: 'bounce', progress: 0, duration: 70, scaleX: 1, scaleY: 1, alpha: 1 });
   }
 
   /** 方块即将销毁——缩小消失动画 */
-  startShrink(pos: GridPosition): void {
-    this.blockAnims.set(pos.key(), { type: 'shrink', progress: 0, duration: 18, scaleX: 1, scaleY: 1, alpha: 1 });
+  startShrink(sector: number): void {
+    this.blockAnims.set(`${sector}`, { type: 'shrink', progress: 0, duration: 18, scaleX: 1, scaleY: 1, alpha: 1 });
   }
 
   /** 新方块生成——放大出现动画 */
-  startGrow(pos: GridPosition): void {
-    this.blockAnims.set(pos.key(), { type: 'grow', progress: 0, duration: 22, scaleX: 0, scaleY: 0, alpha: 1 });
+  startGrow(sector: number): void {
+    this.blockAnims.set(`${sector}`, { type: 'grow', progress: 0, duration: 22, scaleX: 0, scaleY: 0, alpha: 1 });
   }
 
-  /** 移除动画（方块正常离开时） */
-  removeAnim(pos: GridPosition): void {
-    this.blockAnims.delete(pos.key());
+  /** 移除动画 */
+  removeAnim(sector: number): void {
+    this.blockAnims.delete(`${sector}`);
   }
 
-  /** 在指定网格位置显示飘字 */
-  showFloatingText(pos: GridPosition, text: string, color: number = 0xffffff): void {
-    const cellSize = GAME_CONSTANTS.CELL_SIZE;
-    const cx = this.renderer.gridOriginX + pos.col * cellSize + cellSize / 2;
-    const cy = this.renderer.gridOriginY + pos.row * cellSize + cellSize / 2;
+  /** 在指定扇形显示飘字 */
+  showFloatingText(sector: number, text: string, color: number = 0xffffff): void {
+    const pos = this.renderer.sectorToPixel(sector);
+    const cx = pos.x;
+    const cy = pos.y;
 
     const t = new Text({
       text,
@@ -102,23 +102,20 @@ export class EffectRenderer {
   /** 屏幕闪烁效果 */
   triggerScreenFlash(color: number = 0xff4444, duration: number = 15): void {
     this.flash = { alpha: 0.4, life: 0, maxLife: duration };
-    const w = GAME_CONSTANTS.SCREEN_WIDTH;
-    const h = GAME_CONSTANTS.SCREEN_HEIGHT;
+    const w = this.renderer.screenW;
+    const h = this.renderer.screenH;
     this.flashGraphics.clear();
     this.flashGraphics.rect(0, 0, w, h);
     this.flashGraphics.fill({ color, alpha: 0.4 });
   }
 
   /** 攻击位置高亮 */
-  showAttackHighlight(positions: GridPosition[], duration: number = 30): void {
+  showAttackHighlight(sectors: number[], duration: number = 30, color: number = 0xff4444): void {
     const g = new Graphics();
-    const cellSize = GAME_CONSTANTS.CELL_SIZE;
-
-    for (const pos of positions) {
-      const x = this.renderer.gridOriginX + pos.col * cellSize;
-      const y = this.renderer.gridOriginY + pos.row * cellSize;
-      g.roundRect(x + 2, y + 2, cellSize - 4, cellSize - 4, 4);
-      g.fill({ color: 0xff4444, alpha: 0.25 });
+    for (const s of sectors) {
+      const pos = this.renderer.sectorToPixel(s);
+      g.circle(pos.x, pos.y, 20);
+      g.fill({ color, alpha: 0.45 });
     }
 
     g.label = 'AttackHighlight';
@@ -128,6 +125,79 @@ export class EffectRenderer {
     const tick = () => {
       life++;
       g.alpha = 1 - life / duration;
+      if (life >= duration) {
+        this.container.removeChild(g);
+        this.renderer.app.ticker.remove(tick);
+      }
+    };
+    this.renderer.app.ticker.add(tick);
+  }
+
+  /** 整个三角形闪白 */
+  flashSector(sector: number, rotationDeg: number = 0): void {
+    const cx = this.renderer.octagonCenterX;
+    const cy = this.renderer.octagonCenterY;
+    const R = this.renderer.octagonRadius;
+    const g = new Graphics();
+    const a1 = sectorStartAngle(sector, rotationDeg);
+    const a2 = sectorEndAngle(sector, rotationDeg);
+    g.poly([
+      cx, cy,
+      cx + Math.cos(a1) * R, cy + Math.sin(a1) * R,
+      cx + Math.cos(a2) * R, cy + Math.sin(a2) * R,
+    ]);
+    g.fill({ color: 0xffffff, alpha: 0.7 });
+    g.label = 'SectorFlash';
+    this.container.addChild(g);
+
+    let life = 0;
+    const duration = 18;
+    const tick = () => {
+      life++;
+      g.alpha = 1 - life / duration;
+      if (life >= duration) {
+        this.container.removeChild(g);
+        this.renderer.app.ticker.remove(tick);
+      }
+    };
+    this.renderer.app.ticker.add(tick);
+  }
+
+  /** 攻击范围红色粗描边 */
+  showAttackOutline(sectors: number[], rotationDeg: number = 0): void {
+    const cx = this.renderer.octagonCenterX;
+    const cy = this.renderer.octagonCenterY;
+    const R = this.renderer.octagonRadius;
+    const g = new Graphics();
+
+    // Sort sectors to find consecutive runs
+    const sorted = [...sectors].sort((a, b) => a - b);
+    // Draw outer boundary of the affected region
+    const first = sorted[0];
+    const last = sorted[sorted.length - 1];
+    const startA = sectorStartAngle(first, rotationDeg);
+    const endA = sectorEndAngle(last, rotationDeg);
+
+    // Radial line from center to first vertex
+    g.moveTo(cx, cy);
+    g.lineTo(cx + Math.cos(startA) * R, cy + Math.sin(startA) * R);
+    // Outer edge along all affected sectors
+    for (const s of sorted) {
+      const a = sectorEndAngle(s, rotationDeg);
+      g.lineTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R);
+    }
+    // Radial line back to center
+    g.lineTo(cx, cy);
+    g.closePath();
+    g.stroke({ width: 4, color: 0xff2222, alpha: 0.9, join: 'round' });
+
+    g.label = 'AttackOutline';
+    this.container.addChild(g);
+
+    let life = 0;
+    const duration = 100;
+    const tick = () => {
+      life++;
       if (life >= duration) {
         this.container.removeChild(g);
         this.renderer.app.ticker.remove(tick);
