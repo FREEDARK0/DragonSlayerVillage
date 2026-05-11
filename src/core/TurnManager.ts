@@ -4,7 +4,7 @@ import { DragonAI } from '../ai/DragonAI';
 import { dragonTakeDamage, createDragon } from '../models/Dragon';
 import { getAvailableDragons } from '../config/dragonTypes';
 import { EventBus } from './EventBus';
-import { BlockType, getVillageLevel } from '../config/blockTypes';
+import { BlockType } from '../config/blockTypes';
 import { SECTOR_COUNT } from '../utils/SectorUtils';
 import { weightedPick } from '../utils/random';
 
@@ -32,9 +32,8 @@ export class TurnManager {
     const rotSteps = this.state.turnRotationSteps;
 
     // 村庄 +1 / 升级检测（村庄在中心小八边形）
-    this.state.villagePower += 1;
-    this.state.villageLevel = getVillageLevel(this.state.villagePower);
-    this.prevVillagePower = this.state.villagePower;
+    this.state.board.villagePower += 1;
+    this.prevVillagePower = this.state.board.villagePower;
 
     // 骑士 + 法师
     this.state.board.forEach((b) => {
@@ -60,10 +59,10 @@ export class TurnManager {
     EventBus.emit('enemyTurnStart', {});
     const decisions = this.dragonAI.executeTurn(this.state.aliveDragons, this.state.board, this.state.rotationAngle);
     for (const dec of decisions) this.state.addMessage(dec.description);
-    this.dragonAI.handlePostTurn(this.state.dragons, this.state.board, this.state.villagePower);
+    this.dragonAI.handlePostTurn(this.state.dragons, this.state.board, this.state.board.villagePower);
 
     // 村庄检查
-    if (this.state.villagePower <= 0) {
+    if (this.state.board.villagePower <= 0) {
       EventBus.emit('gameOver', { reason: 'village_destroyed' });
       return;
     }
@@ -95,7 +94,7 @@ export class TurnManager {
     for (const s of sectors) {
       const block = this.state.board.getSector(s);
       if (!block || block.type !== BlockType.POWER_STONE || block.value > 0) continue;
-      this.state.villagePower += block.power;
+      this.state.board.villagePower += block.power;
       this.state.addMessage(`战力石 +${block.power} → 村庄`);
     }
   }

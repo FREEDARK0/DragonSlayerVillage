@@ -15,10 +15,6 @@ export class GameState {
   rotationAngle: number = 0;
   turnRotationSteps: number = 0;
 
-  /** 村庄（中心小八边形，不在扇区中） */
-  villagePower: number = 50;
-  villageLevel: number = 0;
-
   /** 黑夜系统 */
   nightStartSector: number = 0;
   nightLength: number = 1;

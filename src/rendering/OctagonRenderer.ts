@@ -67,16 +67,15 @@ export class OctagonRenderer {
       g.stroke({ width: 1, color: 0x334466 });
     }
 
-    // Night overlay (pure black, extends past dragons)
-    const nightR = outerR * 1.4;
+    // Night overlay (black triangles, fixed — does not rotate with board)
     for (let i = 0; i < SECTOR_COUNT; i++) {
       if (!isNight(i)) continue;
-      const a1 = sectorStartAngle(i, rotationDeg);
-      const a2 = sectorEndAngle(i, rotationDeg);
-      const o1x = cx + Math.cos(a1) * nightR;
-      const o1y = cy + Math.sin(a1) * nightR;
-      const o2x = cx + Math.cos(a2) * nightR;
-      const o2y = cy + Math.sin(a2) * nightR;
+      const a1 = i * Math.PI / 4;
+      const a2 = (i + 1) * Math.PI / 4;
+      const o1x = cx + Math.cos(a1) * outerR;
+      const o1y = cy + Math.sin(a1) * outerR;
+      const o2x = cx + Math.cos(a2) * outerR;
+      const o2y = cy + Math.sin(a2) * outerR;
       g.poly([cx, cy, o1x, o1y, o2x, o2y]);
       g.fill(0x000000);
     }

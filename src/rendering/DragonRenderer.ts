@@ -69,9 +69,9 @@ export class DragonRenderer {
       const x = cx + Math.cos(ma) * outerR;
       const y = cy + Math.sin(ma) * outerR;
 
-      // Night: edge i adjacent to sectors i and i-1
-      const inNight = nightSet.has(dragon.edgeIndex) || nightSet.has((dragon.edgeIndex - 1 + 8) % 8);
-      const dAlpha = inNight ? 0.25 : 1;
+      // Night sectors are fixed (don't rotate with board), dragon positions are also fixed
+      const inNight = nightSet.has(dragon.edgeIndex);
+      const dAlpha = inNight ? 0 : 1;
 
       let dContainer = this.dragonGraphics.get(dragon.id);
       if (!dContainer) {
@@ -123,6 +123,21 @@ export class DragonRenderer {
         break;
     }
 
+    // Attack damage above HP bar
+    const atkText = new Text({
+      text: `⚔${dragon.attackDamage}`,
+      style: {
+        fontFamily: 'monospace',
+        fontSize: 16,
+        fill: 0xff4444,
+        fontWeight: 'bold',
+        align: 'center',
+        stroke: { color: 0x000000, width: 3 },
+      },
+    });
+    atkText.anchor.set(0.5, 1);
+    atkText.position.set(0, size + 6);
+
     // HP bar below dragon
     const hpRatio = dragon.combatPower / dragon.maxCombatPower;
     const barWidth = size * 1.5;
@@ -146,6 +161,7 @@ export class DragonRenderer {
     nameText.position.set(0, size + 16);
 
     container.addChild(g);
+    container.addChild(atkText);
     container.addChild(nameText);
   }
 

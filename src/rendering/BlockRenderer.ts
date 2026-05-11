@@ -5,11 +5,6 @@ import { BlockType, getVillageLevel, BLOCK_TYPE_TABLE } from '../config/blockTyp
 import { SECTOR_COUNT, sectorAngle } from '../utils/SectorUtils';
 import { BlockAnimation } from './EffectRenderer';
 
-function isNightSector(sector: number, start: number, len: number): boolean {
-  for (let i = 0; i < len; i++) if (((start + i) % 8) === sector) return true;
-  return false;
-}
-
 export class BlockRenderer {
   private container: Container;
 
@@ -19,7 +14,7 @@ export class BlockRenderer {
     renderer.getLayer(2).addChild(this.container);
   }
 
-  render(board: OctagonBoard, blockAnims?: Map<string, BlockAnimation>, rotationDeg: number = 0, nightStart?: number, nightLen?: number): void {
+  render(board: OctagonBoard, blockAnims?: Map<string, BlockAnimation>, rotationDeg: number = 0, _nightStart?: number, _nightLen?: number): void {
     this.container.removeChildren();
     const R = this.renderer.octagonRadius;
     const cxOct = this.renderer.octagonCenterX;
@@ -39,12 +34,10 @@ export class BlockRenderer {
       const scaleY = anim?.scaleY ?? 1;
       const animAlpha = anim?.alpha ?? 1;
       if (animAlpha <= 0) continue;
-      const nightAlpha = (nightStart !== undefined && nightLen !== undefined && isNightSector(i, nightStart, nightLen)) ? 0.35 : 1;
-
       const bc = new Container();
       bc.position.set(cx, cy);
       bc.scale.set(scaleX, scaleY);
-      bc.alpha = animAlpha * nightAlpha;
+      bc.alpha = animAlpha;
       bc.rotation = 0;
       const g = new Graphics();
 
@@ -61,8 +54,8 @@ export class BlockRenderer {
       g.label = `Block-${block.type}[${i}]`;
       bc.addChild(g);
 
-      // Value display (skip if night)
-      if (block.value > 0 && animAlpha > 0.3 && nightAlpha > 0.5) {
+      // Value display
+      if (block.value > 0 && animAlpha > 0.3) {
         const valR = R * 0.85;
         const valAngle = sectorAngle(i, rotationDeg);
         const wx = cxOct + Math.cos(valAngle) * valR;
@@ -78,9 +71,7 @@ export class BlockRenderer {
         bc.addChild(valText);
       }
 
-      // Block name label (skip if night)
-      if (nightAlpha < 0.5) { bc.addChild(new Container()); /* skip */ }
-      else {
+      // Block name label
       const labelText = new Text({
         text: BLOCK_TYPE_TABLE[block.type].label,
         style: { fontFamily: 'Arial', fontSize: 9, fill: 0xcccccc, align: 'center' },
@@ -89,7 +80,6 @@ export class BlockRenderer {
       labelText.position.set(0, s * 0.7);
       labelText.rotation = 0;
       bc.addChild(labelText);
-      } // end night skip
 
       this.container.addChild(bc);
     }
