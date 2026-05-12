@@ -6,8 +6,7 @@ import { EventBus } from '../core/EventBus';
 export class WinLossSystem {
   /** 检查村庄是否存活 */
   checkVillageAlive(board: OctagonBoard): boolean {
-    const vs = board.findSector(b => b?.type === BlockType.VILLAGE);
-    if (vs === null) {
+    if (board.villagePower <= 0) {
       EventBus.emit('gameOver', { reason: 'village_destroyed' });
       return false;
     }

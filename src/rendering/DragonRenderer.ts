@@ -40,11 +40,11 @@ export class DragonRenderer {
 
   /** 渲染所有龙立绘在上半圆弧上 */
   render(dragons: DragonState[], rotationDeg: number = 0, nightStart?: number, nightLen?: number): void {
+    this.rotationDeg = rotationDeg;
     const nightSet = new Set<number>();
     if (nightStart !== undefined && nightLen !== undefined) {
       for (let i = 0; i < nightLen; i++) nightSet.add((nightStart + i) % 8);
     }
-    this.rotationDeg = rotationDeg;
     const alive = dragons.filter(d => d.isAlive);
     const cx = this.renderer.octagonCenterX;
     const cy = this.renderer.octagonCenterY;
@@ -61,7 +61,7 @@ export class DragonRenderer {
     // Position dragons at octagon vertices (slightly outside)
     const outerR = R * 1.25;
 
-    alive.forEach((dragon) => {
+    for (const dragon of alive) {
       // All dragons on edges (midpoint between two vertices)
       const a1 = (dragon.edgeIndex * Math.PI) / 4;
       const a2 = ((dragon.edgeIndex + 1) * Math.PI) / 4;
@@ -69,9 +69,12 @@ export class DragonRenderer {
       const x = cx + Math.cos(ma) * outerR;
       const y = cy + Math.sin(ma) * outerR;
 
-      // Night sectors are fixed (don't rotate with board), dragon positions are also fixed
       const inNight = nightSet.has(dragon.edgeIndex);
-      const dAlpha = inNight ? 0 : 1;
+      if (inNight) {
+        const existing = this.dragonGraphics.get(dragon.id);
+        if (existing) existing.visible = false;
+        continue; // skip rendering, dragon is hidden
+      }
 
       let dContainer = this.dragonGraphics.get(dragon.id);
       if (!dContainer) {
@@ -94,9 +97,8 @@ export class DragonRenderer {
       }
 
       dContainer.position.set(x, y);
-      dContainer.alpha = dAlpha;
       this.redrawDragon(dContainer, dragon);
-    });
+    }
   }
 
   private redrawDragon(container: Container, dragon: DragonState): void {
@@ -125,7 +127,7 @@ export class DragonRenderer {
 
     // Attack damage above HP bar
     const atkText = new Text({
-      text: `⚔${dragon.attackDamage}`,
+      text: `⚔${Math.round(dragon.combatPower * dragon.attackMultiplier)}`,
       style: {
         fontFamily: 'monospace',
         fontSize: 16,

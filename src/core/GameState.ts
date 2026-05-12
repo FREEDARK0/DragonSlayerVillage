@@ -15,10 +15,10 @@ export class GameState {
   rotationAngle: number = 0;
   turnRotationSteps: number = 0;
 
-  /** 黑夜系统 */
-  nightStartSector: number = 0;
-  nightLength: number = 1;
-  nightGrowing: boolean = true;
+  /** 黑夜系统（外部楔形） */
+  nightStart: number = 0;   // 黑夜起始扇形（X轴下方4个扇区0,1,2,3）
+  nightLength: number = 4;  // 当前长度
+  nightGrowing: boolean = false; // false=收缩, true=增长
 
   turnState: TurnState = TurnState.WAITING_FOR_INPUT;
   turnNumber: number = 0;

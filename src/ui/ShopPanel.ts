@@ -4,7 +4,11 @@ import { GameRenderer } from '../rendering/GameRenderer';
 export class ShopPanel {
   private container: Container;
   visible = false;
+  mineCost = 0; // increments each purchase
   onBuyWall: (() => void) | null = null;
+  onBuyBallista: (() => void) | null = null;
+  onBuyPressure: (() => void) | null = null;
+  onBuyMine: (() => void) | null = null;
 
   constructor(private renderer: GameRenderer) {
     this.container = new Container();
@@ -67,8 +71,41 @@ export class ShopPanel {
     price.position.set(sx + slotW / 2, y + 78);
     this.container.addChild(price);
 
+    // Ballista slot (slot 2)
+    const bx = startX + slotW + gap;
+    const bSlot = new Graphics();
+    bSlot.roundRect(bx, y + 12, slotW, slotH, 6);
+    bSlot.fill({ color: 0x2a2a35, alpha: 0.8 });
+    bSlot.stroke({ width: 2, color: 0x888888 });
+    bSlot.eventMode = 'static'; bSlot.cursor = 'pointer';
+    bSlot.on('pointerdown', () => this.onBuyBallista?.());
+    this.container.addChild(bSlot);
+    this.addSlotText('🏹', '巨弩', '60战力', bx, y, slotW);
+
+    // Pressure stone slot (slot 3)
+    const px = startX + (slotW + gap) * 2;
+    const pSlot = new Graphics();
+    pSlot.roundRect(px, y + 12, slotW, slotH, 6);
+    pSlot.fill({ color: 0x352a3a, alpha: 0.8 });
+    pSlot.stroke({ width: 2, color: 0x6644aa });
+    pSlot.eventMode = 'static'; pSlot.cursor = 'pointer';
+    pSlot.on('pointerdown', () => this.onBuyPressure?.());
+    this.container.addChild(pSlot);
+    this.addSlotText('🪨', '压力石', '80战力', px, y, slotW);
+
+    // Mine slot (slot 4)
+    const mx = startX + (slotW + gap) * 3;
+    const mSlot = new Graphics();
+    mSlot.roundRect(mx, y + 12, slotW, slotH, 6);
+    mSlot.fill({ color: 0x353525, alpha: 0.8 });
+    mSlot.stroke({ width: 2, color: 0x888855 });
+    mSlot.eventMode = 'static'; mSlot.cursor = 'pointer';
+    mSlot.on('pointerdown', () => this.onBuyMine?.());
+    this.container.addChild(mSlot);
+    this.addSlotText('⛏', '矿厂', `${10 + this.mineCost * 5}战力`, mx, y, slotW);
+
     // Empty slots
-    for (let i = 1; i < slotCount; i++) {
+    for (let i = 4; i < slotCount; i++) {
       const ex = startX + i * (slotW + gap);
       const es = new Graphics();
       es.roundRect(ex, y + 12, slotW, slotH, 6);
@@ -89,6 +126,15 @@ export class ShopPanel {
     title.anchor.set(0.5, 0);
     title.position.set(w / 2, y - 6);
     this.container.addChild(title);
+  }
+
+  private addSlotText(icon: string, name: string, price: string, sx: number, y: number, slotW: number): void {
+    const i = new Text({ text: icon, style: { fontFamily: 'Arial', fontSize: 24 } });
+    i.anchor.set(0.5); i.position.set(sx + slotW / 2, y + 30); this.container.addChild(i);
+    const l = new Text({ text: name, style: { fontFamily: 'Arial', fontSize: 11, fill: 0xddcc88 } });
+    l.anchor.set(0.5); l.position.set(sx + slotW / 2, y + 60); this.container.addChild(l);
+    const p = new Text({ text: price, style: { fontFamily: 'Arial', fontSize: 10, fill: 0x88cc88 } });
+    p.anchor.set(0.5); p.position.set(sx + slotW / 2, y + 78); this.container.addChild(p);
   }
 
   hide(): void {

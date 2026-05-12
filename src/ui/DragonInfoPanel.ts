@@ -74,7 +74,7 @@ export class DragonInfoPanel {
 
     // Attack damage
     const atkText = new Text({
-      text: `攻击力: ${dragon.attackDamage}`,
+      text: `攻击力: ${Math.round(dragon.combatPower * dragon.attackMultiplier)}`,
       style: { fontFamily: 'monospace', fontSize: 11, fill: 0xff8888 },
     });
     atkText.position.set(10, 65);

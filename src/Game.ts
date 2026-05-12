@@ -43,7 +43,21 @@ export class Game {
     this.gameOverScreen = new GameOverScreen(this.renderer);
     this.shopPanel = new ShopPanel(this.renderer);
     this.inputManager = new InputManager();
-    this.shopPanel.onBuyWall = () => this.buyWoodWall();
+    this.shopPanel.onBuyWall = () => this.placeBuilding(BlockType.WOOD_WALL, 5);
+    this.shopPanel.onBuyBallista = () => this.placeBuilding(BlockType.BALLISTA, 60);
+    this.shopPanel.onBuyPressure = () => this.placeBuilding(BlockType.PRESSURE_STONE, 80);
+    this.shopPanel.onBuyMine = () => {
+      const cost = 10 + this.shopPanel.mineCost * 5;
+      if (this.state.board.villagePower >= cost) {
+        this.state.board.villagePower -= cost;
+        this.shopPanel.mineCost++;
+        this.placementMode = true;
+        this.placingType = BlockType.MINE;
+        this.state.addMessage('点击空三角形放置矿厂');
+        this.renderAll();
+        this.shopPanel.draw(); // refresh shop price
+      }
+    };
     this.setupEvents();
     this.startGame();
     const animate = () => {
@@ -113,14 +127,21 @@ export class Game {
     this.inputManager.onConfirm(() => {
       if (this.state.gameOver) return;
 
-      if (this.placementMode) {
+      if (this.placementMode && this.placingType) {
         const sector = this.inputManager.getCurrentSector();
-        if (sector !== null && this.state.board.isEmpty(sector)) {
+        if (sector !== null) {
           const level = getVillageLevel(this.state.board.villagePower);
-          const power = level >= 2 ? 50 : 10;
-          this.state.board.setSector(sector, { id: Date.now(), type: BlockType.WOOD_WALL, value: power, power, shielded: false, attribute: null });
+          let power: number;
+          const type = this.placingType;
+          if (type === BlockType.WOOD_WALL) power = level >= 2 ? 50 : level >= 1 ? 25 : 10;
+          else if (type === BlockType.BALLISTA) power = level >= 2 ? 30 : level >= 1 ? 15 : 5;
+          else if (type === BlockType.MINE) power = 10;
+          else power = 0;
+          const cannotAttack = type === BlockType.WOOD_WALL || type === BlockType.PRESSURE_STONE || type === BlockType.MINE;
+          this.state.board.setSector(sector, { id: Date.now(), type, value: power, power, shielded: false, attribute: null, cooldown: 0, cannotAttack });
           this.placementMode = false;
-          this.state.addMessage('木墙已放置');
+          this.placingType = null;
+          this.state.addMessage('建筑已放置');
         }
         this.renderAll();
         return;
@@ -137,35 +158,41 @@ export class Game {
   }
 
   private placementMode = false;
+  private placingType: BlockType | null = null;
 
-  private buyWoodWall(): void {
-    if (this.state.board.villagePower < 5) return;
-    this.state.board.villagePower -= 5;
+  private placeBuilding(type: BlockType, cost: number): void {
+    if (this.state.board.villagePower < cost) return;
+    this.state.board.villagePower -= cost;
     const level = getVillageLevel(this.state.board.villagePower);
     let power: number;
-    if (level >= 2) power = 50;
-    else if (level >= 1) power = 25;
-    else power = 10;
-
-    if (level >= 2) {
-      // Manual placement mode
-      this.placementMode = true;
-      this.state.addMessage('点击一个空三角形放置木墙');
+    if (type === BlockType.WOOD_WALL) {
+      power = level >= 2 ? 50 : level >= 1 ? 25 : 10;
+    } else if (type === BlockType.BALLISTA) {
+      power = level >= 2 ? 30 : level >= 1 ? 15 : 5;
     } else {
-      // Random empty sector
+      power = 0; // pressure stone
+    }
+
+    if (type === BlockType.WOOD_WALL && level < 2) {
+      // Random placement for low-level wood wall
       const empty = this.state.board.getEmptySectors();
       if (empty.length > 0) {
         const s = empty[Math.floor(Math.random() * empty.length)];
-        this.state.board.setSector(s, { id: Date.now(), type: BlockType.WOOD_WALL, value: power, power, shielded: false, attribute: null });
+        this.state.board.setSector(s, { id: Date.now(), type, value: power, power, shielded: false, attribute: null, cooldown: 0, cannotAttack: true });
       }
+    } else {
+      // Manual placement
+      this.placementMode = true;
+      this.placingType = type;
+      this.state.addMessage('点击一个三角形放置建筑');
     }
     this.renderAll();
   }
 
   private renderAll(): void {
-    this.octagonRenderer.render(this.state.board, this.state.hero.heroSector, this.state.rotationAngle, this.state.nightStartSector, this.state.nightLength);
-    this.blockRenderer.render(this.state.board, this.effectRenderer.blockAnims, this.state.rotationAngle, this.state.nightStartSector, this.state.nightLength);
-    this.dragonRenderer.render(this.state.aliveDragons, this.state.rotationAngle, this.state.nightStartSector, this.state.nightLength);
+    this.octagonRenderer.render(this.state.board, this.state.hero.heroSector, this.state.rotationAngle, this.state.nightStart, this.state.nightLength);
+    this.blockRenderer.render(this.state.board, this.effectRenderer.blockAnims, this.state.rotationAngle);
+    this.dragonRenderer.render(this.state.aliveDragons, this.state.rotationAngle, this.state.nightStart, this.state.nightLength);
     const villagePower = this.state.board.villagePower;
     const villageLevel = getVillageLevel(villagePower);
     this.hud.update(villagePower, villageLevel, this.state.turnNumber, this.state.year, 'calm' as any, this.state.messages, this.state.rotationAngle);

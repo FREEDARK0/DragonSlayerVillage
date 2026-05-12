@@ -14,7 +14,7 @@ export class BlockRenderer {
     renderer.getLayer(2).addChild(this.container);
   }
 
-  render(board: OctagonBoard, blockAnims?: Map<string, BlockAnimation>, rotationDeg: number = 0, _nightStart?: number, _nightLen?: number): void {
+  render(board: OctagonBoard, blockAnims?: Map<string, BlockAnimation>, rotationDeg: number = 0): void {
     this.container.removeChildren();
     const R = this.renderer.octagonRadius;
     const cxOct = this.renderer.octagonCenterX;
@@ -42,13 +42,15 @@ export class BlockRenderer {
       const g = new Graphics();
 
       switch (block.type) {
-        case BlockType.VILLAGE: this.drawVillage(g, s, block); break;
         case BlockType.KNIGHT: this.drawKnight(g, s); break;
         case BlockType.MAGE: this.drawMage(g, s); break;
         case BlockType.VOODOO: this.drawVoodoo(g, s, block); break;
         case BlockType.POWER_STONE: this.drawPowerStone(g, s); break;
         case BlockType.WEAKNESS: this.drawWeakness(g, s); break;
         case BlockType.WOOD_WALL: this.drawWoodWall(g, s); break;
+        case BlockType.BALLISTA: this.drawBallista(g, s); break;
+        case BlockType.PRESSURE_STONE: this.drawPressureStone(g, s); break;
+        case BlockType.MINE: this.drawMine(g, s); break;
       }
 
       g.label = `Block-${block.type}[${i}]`;
@@ -164,6 +166,49 @@ export class BlockRenderer {
     // Sparkle
     g.circle(0, -s * 0.3, s * 0.08);
     g.fill(0xffffff);
+  }
+
+  private drawBallista(g: Graphics, s: number): void {
+    // Crossbow on stand
+    g.roundRect(-s * 0.15, s * 0.2, s * 0.3, s * 0.5, 3);
+    g.fill(0x666666); // stand
+    g.roundRect(-s * 0.5, -s * 0.1, s * 1.0, s * 0.12, 2);
+    g.fill(0x8B6914); // bow
+    g.stroke({ width: 1, color: 0x5C3A00 });
+    // Arrow
+    g.poly([0, -s * 0.6, -s * 0.06, -s * 0.05, s * 0.06, -s * 0.05]);
+    g.fill(0xcccccc);
+    // String
+    g.rect(-s * 0.48, -s * 0.15, s * 0.96, s * 0.02);
+    g.fill(0xaaaaaa);
+  }
+
+  private drawMine(g: Graphics, s: number): void {
+    // Mine cart on track
+    g.roundRect(-s * 0.55, -s * 0.3, s * 1.1, s * 0.08, 1);
+    g.fill(0x666666);
+    // Cart
+    g.poly([-s * 0.3, -s * 0.3, s * 0.3, -s * 0.3, s * 0.2, s * 0.15, -s * 0.2, s * 0.15]);
+    g.fill(0x8B6914); g.stroke({ width: 1, color: 0x5C3A00 });
+    // Ore inside
+    g.circle(s * 0.05, s * 0.05, s * 0.12);
+    g.fill(0xcca833);
+    // Pickaxe
+    g.roundRect(s * 0.2, -s * 0.45, s * 0.04, s * 0.3, 1);
+    g.fill(0x886633);
+    g.poly([s * 0.15, -s * 0.55, s * 0.35, -s * 0.55, s * 0.25, -s * 0.35]);
+    g.fill(0x666666);
+  }
+
+  private drawPressureStone(g: Graphics, s: number): void {
+    // Heavy angular stone
+    g.poly([0, -s * 0.7, s * 0.5, -s * 0.2, s * 0.3, s * 0.6, -s * 0.3, s * 0.6, -s * 0.5, -s * 0.2]);
+    g.fill(0x6644aa); g.stroke({ width: 1.5, color: 0x442288 });
+    // Pressure lines
+    for (let i = 0; i < 3; i++) {
+      g.rect(-s * 0.3 + i * s * 0.25, -s * 0.5 + i * s * 0.2, s * 0.1, s * 0.02);
+      g.fill(0x8866cc);
+    }
   }
 
   private drawWoodWall(g: Graphics, s: number): void {

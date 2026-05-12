@@ -7,10 +7,13 @@ export interface BlockData {
   value: number;
   power: number;
   shielded: boolean;
-  /** 三角形属性 (gold/strength/life/light/dark) */
   attribute: string | null;
   targetColor?: number;
   targetDragonId?: string;
+  /** 巨弩冷却 */
+  cooldown: number;
+  /** 无法攻击标签 */
+  cannotAttack: boolean;
 }
 
 let nextBlockId = 1;
@@ -21,7 +24,7 @@ export function createBlock(type: BlockType, power?: number, value?: number): Bl
   return {
     id: nextBlockId++,
     type, value: value ?? p, power: p,
-    shielded: false, attribute: null,
+    shielded: false, attribute: null, cooldown: 0, cannotAttack: false,
   };
 }
 
@@ -29,7 +32,7 @@ export function createPowerStone(villageLevel: number): BlockData {
   const minP = Math.max(1, villageLevel - 3);
   const maxP = villageLevel + 3;
   const p = randInt(minP, maxP);
-  return { id: nextBlockId++, type: BlockType.POWER_STONE, value: p, power: p, shielded: false, attribute: null };
+  return { id: nextBlockId++, type: BlockType.POWER_STONE, value: p, power: p, shielded: false, attribute: null, cooldown: 0, cannotAttack: false };
 }
 
 /** 随机生成骑士/法师/巫毒之一 */

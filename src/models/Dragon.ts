@@ -6,7 +6,7 @@ export interface DragonState {
   personality: DragonPersonalityType;
   combatPower: number;
   maxCombatPower: number;
-  attackDamage: number;
+  attackMultiplier: number;
   color: number;
   isAlive: boolean;
   turnCounter: number;
@@ -31,7 +31,7 @@ export function createDragon(template: DragonTemplate, year: number, edgeIndex: 
     personality: template.personality,
     combatPower: Math.round(template.baseCombatPower * powerScale),
     maxCombatPower: Math.round(template.baseCombatPower * powerScale),
-    attackDamage: Math.round(template.baseAttack * powerScale),
+    attackMultiplier: 0.3,
     color: template.color,
     isAlive: true,
     turnCounter: 0,

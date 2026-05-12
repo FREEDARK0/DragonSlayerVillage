@@ -59,7 +59,7 @@ export class DragonAI {
   }
 
   private executeDecision(dec: DragonDecision, board: OctagonBoard): void {
-    const baseDmg = dec.dragon.attackDamage;
+    const baseDmg = Math.round(dec.dragon.combatPower * dec.dragon.attackMultiplier);
 
     for (const s of dec.targetSectors) {
       const block = board.getSector(s);
@@ -73,8 +73,8 @@ export class DragonAI {
         continue;
       }
 
+      if (block.cannotAttack) continue;
       let totalDmg = baseDmg;
-      // 同属性加成
       if (block.attribute === dec.dragon.element) {
         totalDmg += Math.floor(block.power / 2);
       }
@@ -89,10 +89,10 @@ export class DragonAI {
         board.removeBlock(s);
         EventBus.emit('blockDestroyed', { sector: s, blockType: wasType, value: block.value });
         if (dec.dragon.personality === DragonPersonalityType.GOLD) {
-          board.setSector(s, { id: -1, type: BlockType.POWER_STONE, value: randInt(3, 8), power: randInt(3, 8), shielded: false, attribute: dec.dragon.element });
+          board.setSector(s, { id: -1, type: BlockType.POWER_STONE, value: randInt(3, 8), power: randInt(3, 8), shielded: false, attribute: dec.dragon.element, cooldown: 0, cannotAttack: false });
         }
         if (dec.dragon.personality === DragonPersonalityType.BRUTAL) {
-          board.setSector(s, { id: -1, type: BlockType.WEAKNESS, value: 8, power: 0, shielded: false, attribute: dec.dragon.element });
+          board.setSector(s, { id: -1, type: BlockType.WEAKNESS, value: 8, power: 0, shielded: false, attribute: dec.dragon.element, cooldown: 0, cannotAttack: false });
         }
       }
 
