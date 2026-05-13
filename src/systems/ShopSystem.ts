@@ -1,7 +1,16 @@
 import { BlockTag, BlockType, SHOP_ITEM_POOL, ShopItem, SpellType } from '../config/blockTypes';
 import { GameState } from '../core/GameState';
-import { createPlacedBlock, hasBlockTag, isFriendlyBlock, MAX_BLOCK_LEVEL, refreshBlockForLevel } from '../effects/BlockEffectRegistry';
-import { dragonTakeDamage } from '../models/Dragon';
+import {
+  calculatePressureStoneCombatPower,
+  createPlacedBlock,
+  destroyBlockInContext,
+  hasBlockTag,
+  isFriendlyBlock,
+  MAX_BLOCK_LEVEL,
+  refreshBlockForLevel,
+} from '../effects/BlockEffectRegistry';
+import { createEffectContext } from '../effects/EffectContext';
+import { dragonTakeDamage, markDragonDefeated } from '../models/Dragon';
 import { EventBus } from '../core/EventBus';
 
 export const LOCKED_SLOT_COUNT = 2;
@@ -124,7 +133,7 @@ export class ShopSystem {
       : this.placeSelectedBlock(gameState, selected, sector);
 
     if (!result.ok) return result;
-    gameState.board.villagePower -= item.cost;
+    gameState.applyVillagePowerDelta(-item.cost, 'placement');
     this.consumeSelection(selected);
     return result;
   }
@@ -134,6 +143,7 @@ export class ShopSystem {
     if (item.kind !== 'block') return { ok: false, message: '未选择建筑' };
     if (sector === null) return { ok: false, message: '请选择棋盘格' };
     const existing = gameState.board.getSector(sector);
+    const smithyBonus = this.calculatePlacementSmithyBonus(gameState, sector);
     if (existing?.type === BlockType.DRAGON_FIRE) {
       existing.combatPower -= item.combatPower;
       if (existing.combatPower <= 0) gameState.board.removeBlock(sector);
@@ -143,9 +153,10 @@ export class ShopSystem {
     if (existing && existing.level >= MAX_BLOCK_LEVEL) return { ok: false, message: '该建筑已满级' };
     if (existing) {
       refreshBlockForLevel(existing, existing.level + 1);
+      existing.combatPower += smithyBonus;
     } else {
-      const block = createPlacedBlock(item.blockType, 1);
-      block.combatPower = item.combatPower;
+      const block = this.createPlacedBlockWithPlacementEffects(gameState, item.blockType, item.combatPower, sector);
+      block.combatPower += smithyBonus;
       gameState.board.setSector(sector, block);
     }
     return { ok: true, message: existing ? `建筑已升级至 Lv.${existing.level}` : '建筑已放置' };
@@ -187,8 +198,7 @@ export class ShopSystem {
     const upgradeSector = candidates[Math.floor(Math.random() * candidates.length)];
     const upgradeTarget = gameState.board.getSector(upgradeSector);
     if (!upgradeTarget) return { ok: false, message: '没有可升级的其他友方' };
-    gameState.board.removeBlock(sector);
-    EventBus.emit('blockDestroyed', { sector, blockType: target.type, combatPower: target.combatPower });
+    destroyBlockInContext(target, sector, createEffectContext(gameState), target.combatPower);
     refreshBlockForLevel(upgradeTarget, upgradeTarget.level + 1);
     return { ok: true, message: `${upgradeTarget.type} 升级至 Lv.${upgradeTarget.level}` };
   }
@@ -212,17 +222,41 @@ export class ShopSystem {
     const dragon = gameState.aliveDragons.find(d => d.edgeIndex === sector);
     if (!dragon) return { ok: false, message: '该扇区没有敌人' };
     const damage = target.combatPower;
-    gameState.board.removeBlock(sector);
-    EventBus.emit('blockDestroyed', { sector, blockType: target.type, combatPower: target.combatPower });
+    destroyBlockInContext(target, sector, createEffectContext(gameState), target.combatPower);
     dragonTakeDamage(dragon, damage);
     EventBus.emit('dragonDamaged', { dragonId: dragon.id, damage });
-    if (!dragon.isAlive) EventBus.emit('dragonDied', { dragonId: dragon.id });
+    if (dragon.combatPower <= 0) {
+      markDragonDefeated(dragon, gameState.turnNumber + 6);
+      EventBus.emit('dragonDied', { dragonId: dragon.id });
+    }
     return { ok: true, message: `盾牌碾压造成 ${damage} 伤害` };
   }
 
   private consumeSelection(selected: ShopSelection): void {
     if (selected.area === 'offer') this.refillOfferSlot(selected.index);
     this.cancelPlacement();
+  }
+
+  private createPlacedBlockWithPlacementEffects(gameState: GameState, blockType: BlockType, combatPower: number, sector: number) {
+    const block = createPlacedBlock(blockType, 1);
+    if (blockType === BlockType.PRESSURE_STONE) {
+      block.combatPower = calculatePressureStoneCombatPower(1, sector, gameState.aliveDragons);
+      return block;
+    }
+    block.combatPower = combatPower;
+    return block;
+  }
+
+  private calculatePlacementSmithyBonus(gameState: GameState, sector: number): number {
+    const effectiveDecreaseEvents = gameState.villagePowerDecreaseEventsForPlacement + 1;
+    if (effectiveDecreaseEvents <= 0) return 0;
+    let perEventBonus = 0;
+    for (const adjacent of [(sector + 7) % 8, (sector + 1) % 8]) {
+      const block = gameState.board.getSector(adjacent);
+      if (block?.type !== BlockType.SMITHY) continue;
+      perEventBonus += smithyLevelBonus(block.level ?? 1);
+    }
+    return effectiveDecreaseEvents * perEventBonus;
   }
 
   private isOfferIndex(index: number): boolean {
@@ -232,4 +266,10 @@ export class ShopSystem {
   private isLockedIndex(index: number): boolean {
     return index >= 0 && index < this.state.lockedSlots.length;
   }
+}
+
+function smithyLevelBonus(level: number): number {
+  if (level >= 3) return 3;
+  if (level === 2) return 2;
+  return 1;
 }

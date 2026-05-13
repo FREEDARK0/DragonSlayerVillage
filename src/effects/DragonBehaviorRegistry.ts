@@ -1,7 +1,7 @@
 import { BlockType } from '../config/blockTypes';
 import { DragonPersonalityType } from '../config/dragonTypes';
 import { DragonState } from '../models/Dragon';
-import { createBlock } from '../models/Block';
+import { createPowerStone } from '../models/Block';
 import { EffectContext } from './EffectContext';
 
 export interface DragonBehaviorDefinition {
@@ -68,13 +68,16 @@ registerDragonBehavior({
     return 1;
   },
   describe(dragon) {
-    return `${dragon.name}贪婪吐息！${dragon.satiation >= 60 ? '（快吃饱了）' : ''}`;
-  },
-  afterAction(dragon) {
-    dragon.satiation = Math.min(100, dragon.satiation + 5);
+    return `${dragon.name}贪食吐息！`;
   },
   effectDescriptions(dragon) {
-    return [`每次行动后饱腹度 +5（当前 ${dragon.satiation}/100）`];
+    return [
+      '攻击后吞噬白天区域的其他龙，获得其当前战力并移动到其位置',
+      `攻击 2 次后离开（已攻击 ${dragon.attackCount}/2）`,
+    ];
+  },
+  shouldLeaveAfterTurn(dragon) {
+    return dragon.attackCount >= 2;
   },
 });
 
@@ -84,15 +87,13 @@ registerDragonBehavior({
     return dragon.turnCounter % 2 === 0 ? 2 : 1;
   },
   describe(dragon) {
-    const progress = Math.round((dragon.damageDealt / dragon.damageThreshold) * 100);
-    return `${dragon.name}狂暴吐息！${progress}% 目标伤害`;
+    return `${dragon.name}破坏吐息！`;
   },
-  effectDescriptions(dragon) {
+  effectDescriptions() {
     return [
-      `吐息范围交替变化`,
-      `击破后顺时针移动并继续攻击`,
-      `场上地块少于3时离开`,
-      `已造成 ${dragon.damageDealt}/${dragon.damageThreshold} 目标伤害`,
+      '吐息范围在 1 扇区与 3 扇区之间交替变化',
+      '击破地块后顺时针移动并继续攻击',
+      '场上地块少于 3 个时离开',
     ];
   },
   shouldLeaveAfterTurn(_dragon, ctx) {
@@ -109,11 +110,10 @@ registerDragonBehavior({
     return `${dragon.name}洒下金色吐息！`;
   },
   onEmptySectorHit(_dragon, sector, _damage, ctx) {
-    const power = ctx.random.int(1, 5);
-    ctx.board.setSector(sector, createBlock(BlockType.POWER_STONE, power));
+    ctx.board.setSector(sector, createPowerStone());
   },
   effectDescriptions() {
-    return ['吐息命中的空位生成 1-5 战力金矿', '空位仍会承受对村庄的吐息伤害'];
+    return ['吐息命中的空位生成 1 级随机战力金矿', '空位仍会承受对村庄的吐息伤害'];
   },
 });
 

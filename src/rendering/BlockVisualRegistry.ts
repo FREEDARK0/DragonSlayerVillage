@@ -137,7 +137,7 @@ registerBlockVisual(BlockType.PRESSURE_STONE, (g, s) => {
   }
 });
 
-registerBlockVisual(BlockType.PRIEST, (g, s) => {
+registerBlockVisual(BlockType.GUARDIAN, (g, s) => {
   g.circle(0, -s * 0.2, s * 0.35); g.fill(0xffddaa); g.stroke({ width: 1, color: 0xcc8844 });
   g.poly([-s * 0.3, s * 0.5, s * 0.3, s * 0.5, 0, s * 0.15]); g.fill(0xddccaa);
   g.roundRect(-s * 0.05, -s * 0.55, s * 0.1, s * 0.4, 2); g.fill(0x886633);
@@ -160,6 +160,18 @@ registerBlockVisual(BlockType.TAVERN, (g, s) => {
   g.roundRect(-s * 0.5, -s * 0.1, s * 1.0, s * 0.8, 3); g.fill(0xcc8844); g.stroke({ width: 1, color: 0x886633 });
   g.poly([-s * 0.5, -s * 0.1, s * 0.5, -s * 0.1, 0, -s * 0.65]); g.fill(0xaa6633);
   g.circle(0, -s * 0.3, s * 0.08); g.fill(0xffdd44);
+});
+
+registerBlockVisual(BlockType.SMITHY, (g, s) => {
+  g.roundRect(-s * 0.5, -s * 0.2, s, s * 0.75, 3);
+  g.fill(0x7a4c25);
+  g.stroke({ width: 1, color: 0xc89255 });
+  g.rect(-s * 0.25, -s * 0.55, s * 0.08, s * 0.45);
+  g.fill(0x4d4d4d);
+  g.rect(-s * 0.1, -s * 0.58, s * 0.38, s * 0.1);
+  g.fill(0xc0c0c0);
+  g.rect(s * 0.15, -s * 0.5, s * 0.08, s * 0.28);
+  g.fill(0xc0c0c0);
 });
 
 registerBlockVisual(BlockType.ASSASSIN, (g, s) => {

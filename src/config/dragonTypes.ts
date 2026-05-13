@@ -23,7 +23,7 @@ export interface DragonTemplate {
 
 export const DRAGON_TEMPLATES: DragonTemplate[] = [
   { id: 'ignis', name: '伊格尼斯', personality: DragonPersonalityType.ARROGANT, baseCombatPower: 20, baseAttack: 3, color: 0xff4444, minYear: 1, spawnWeight: 3, quantity: 1 },
-  { id: 'gulo', name: '古洛', personality: DragonPersonalityType.GLUTTONOUS, baseCombatPower: 15, baseAttack: 2, color: 0xff8844, minYear: 1, spawnWeight: 4, quantity: 1 },
+  { id: 'gulo', name: '古洛', personality: DragonPersonalityType.GLUTTONOUS, baseCombatPower: 20, baseAttack: 3, color: 0xff8844, minYear: 1, spawnWeight: 4, quantity: 1 },
   { id: 'furo', name: '弗罗', personality: DragonPersonalityType.DESTRUCTIVE, baseCombatPower: 25, baseAttack: 4, color: 0x8844cc, minYear: 1, spawnWeight: 2, quantity: 1 },
   { id: 'aurus', name: '奥鲁斯', personality: DragonPersonalityType.GOLD, baseCombatPower: 18, baseAttack: 2, color: 0xffcc00, minYear: 1, spawnWeight: 3, quantity: 2 },
   { id: 'wyvern', name: '亚龙', personality: DragonPersonalityType.WYVERN, baseCombatPower: 15, baseAttack: 2, color: 0x66aa66, minYear: 1, spawnWeight: 3, quantity: 3 },

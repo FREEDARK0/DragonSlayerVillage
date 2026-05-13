@@ -42,9 +42,9 @@ export class DragonInfoPanel {
     // Personality
     const personalityNames: Record<string, string> = {
       [DragonPersonalityType.ARROGANT]: '高傲 - 侧翼强化',
-      [DragonPersonalityType.GLUTTONOUS]: '贪食 - 优先吃食物',
-      [DragonPersonalityType.DESTRUCTIVE]: '破坏 - 击破后移动追击',
-      [DragonPersonalityType.GOLD]: '黄金 - 空位生成金矿',
+      [DragonPersonalityType.GLUTTONOUS]: '贪食 - 白昼吞龙',
+      [DragonPersonalityType.DESTRUCTIVE]: '破坏 - 交替追击',
+      [DragonPersonalityType.GOLD]: '黄金 - 随机金矿',
       [DragonPersonalityType.WYVERN]: '亚龙 - 受伤后离开',
       [DragonPersonalityType.BRUTAL]: '暴虐 - 生成龙焰',
       [DragonPersonalityType.SUN]: '太阳 - 耀光吐息',
@@ -98,7 +98,7 @@ export class DragonInfoPanel {
     // Satiation (gluttonous)
     if (dragon.personality === DragonPersonalityType.GLUTTONOUS) {
       const satText = new Text({
-        text: `饱腹度: ${dragon.satiation}/100`,
+        text: `攻击计数: ${dragon.attackCount}/2`,
         style: { fontFamily: 'monospace', fontSize: 10, fill: 0xff8844 },
       });
       satText.position.set(10, 98);
@@ -108,7 +108,7 @@ export class DragonInfoPanel {
     // Damage dealt (destructive)
     if (dragon.personality === DragonPersonalityType.DESTRUCTIVE) {
       const dmgText = new Text({
-        text: '少于3个地块时离开',
+        text: '范围交替；击破后顺时针追击',
         style: { fontFamily: 'monospace', fontSize: 10, fill: 0xcc44cc },
       });
       dmgText.position.set(10, 98);

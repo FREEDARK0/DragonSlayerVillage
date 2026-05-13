@@ -23,6 +23,8 @@ export class GameState {
   turnState: TurnState = TurnState.WAITING_FOR_INPUT;
   turnNumber: number = 0;
   year: number = 1;
+  villagePowerDecreaseEventsInBattle: number = 0;
+  villagePowerDecreaseEventsForPlacement: number = 0;
 
   messages: string[] = [];
   gameOver: boolean = false;
@@ -35,5 +37,21 @@ export class GameState {
   addMessage(msg: string): void {
     this.messages.unshift(msg);
     if (this.messages.length > 5) this.messages.length = 5;
+  }
+
+  applyVillagePowerDelta(delta: number, phase: 'battle' | 'placement'): void {
+    this.board.villagePower += delta;
+    if (delta >= 0) return;
+    if (phase === 'battle') this.villagePowerDecreaseEventsInBattle++;
+    else this.villagePowerDecreaseEventsForPlacement++;
+  }
+
+  beginBattleVillagePowerTracking(): void {
+    this.villagePowerDecreaseEventsInBattle = 0;
+  }
+
+  finalizeBattleVillagePowerTracking(): void {
+    this.villagePowerDecreaseEventsForPlacement = this.villagePowerDecreaseEventsInBattle;
+    this.villagePowerDecreaseEventsInBattle = 0;
   }
 }

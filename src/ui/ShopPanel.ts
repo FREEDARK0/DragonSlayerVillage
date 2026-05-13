@@ -1,10 +1,10 @@
 import { Container, Graphics, Text } from 'pixi.js';
 import { GameRenderer } from '../rendering/GameRenderer';
 import { RenderLayer } from '../rendering/GameRenderer';
-import { BLOCK_TYPE_TABLE, ShopItem, SpellType } from '../config/blockTypes';
+import { BLOCK_TYPE_TABLE, BlockType, ShopItem, SpellType } from '../config/blockTypes';
 import { getBlockEffectDescriptions } from '../effects/BlockEffectRegistry';
 import { LOCKED_SLOT_COUNT, OFFER_SLOT_COUNT, ShopSelection, ShopState } from '../systems/ShopSystem';
-import { TooltipPanel } from './TooltipPanel';
+import { TooltipLineLayout, TooltipPanel } from './TooltipPanel';
 
 export class ShopPanel {
   private container: Container;
@@ -24,7 +24,7 @@ export class ShopPanel {
     this.tooltip = new TooltipPanel(renderer, 'ShopTooltip');
   }
 
-  draw(state: ShopState, selected: ShopSelection | null = null): void {
+  draw(state: ShopState, selected: ShopSelection | null = null, disabled: boolean = false): void {
     this.tooltip.hide();
     this.container.removeChildren();
     const w = this.renderer.screenW;
@@ -54,7 +54,7 @@ export class ShopPanel {
       this.drawSlot(startX + i * (slotW + gap), y + 10, item, selected?.area === 'locked' && selected.index === i, (event) => {
         this.onUiPointerActivity?.(event);
         if (item) this.onLockedSelected?.(i);
-      });
+      }, disabled);
     }
 
     // Divider
@@ -70,7 +70,7 @@ export class ShopPanel {
       this.drawSlot(sx, y + 10, item, selected?.area === 'offer' && selected.index === i, (event) => {
         this.onUiPointerActivity?.(event);
         if (item) this.startOfferGesture(item, i, event);
-      });
+      }, disabled);
     }
 
     if (selected) {
@@ -85,7 +85,7 @@ export class ShopPanel {
     }
   }
 
-  private drawSlot(sx: number, sy: number, item: ShopItem | null, selected: boolean, onClick: (event: any) => void): void {
+  private drawSlot(sx: number, sy: number, item: ShopItem | null, selected: boolean, onClick: (event: any) => void, disabled: boolean): void {
     const g = new Graphics();
     const scale = selected ? 1.1 : 1;
     const w = 80 * scale;
@@ -101,9 +101,12 @@ export class ShopPanel {
       g.fill({ color: 0xb9d6ba, alpha: 0.24 });
       g.stroke({ width: 1, color: 0x6d8f78, alpha: 0.8 });
     }
-    g.eventMode = 'static'; g.cursor = 'pointer';
-    g.on('pointerdown', onClick);
-    if (item) {
+    g.eventMode = disabled ? 'none' : 'static';
+    if (!disabled) {
+      g.cursor = 'pointer';
+      g.on('pointerdown', onClick);
+    }
+    if (item && !disabled) {
       g.on('pointerover', () => this.showItemTooltip(item, sx + 40, sy + 45));
       g.on('pointerout', () => this.tooltip.hide());
     }
@@ -231,19 +234,81 @@ export class ShopPanel {
     return this.tooltip.isVisible();
   }
 
+  isDragging(): boolean {
+    return this.dragging !== null;
+  }
+
+  getTooltipLines(): string[] {
+    return this.tooltip.getLines();
+  }
+
+  getTooltipLayout(): TooltipLineLayout[] {
+    return this.tooltip.getLineLayout();
+  }
+
   private showItemTooltip(item: ShopItem, x: number, y: number): void {
-    const descriptions = item.kind === 'block' ? [
-      `当前战力: ${item.combatPower}`,
-      ...getBlockEffectDescriptions(item.blockType, 1).map(line => `Lv1 ${line}`),
-      ...getBlockEffectDescriptions(item.blockType, 2).map(line => `Lv2 ${line}`),
-      ...getBlockEffectDescriptions(item.blockType, 3).map(line => `Lv3 ${line}`),
-    ] : getSpellDescriptions(item.spellType);
+    const descriptions = item.kind === 'block'
+      ? getBlockShopDescriptions(item.blockType, item.combatPower)
+      : getSpellDescriptions(item.spellType);
     this.tooltip.show([
       { text: `${item.label}  ${item.cost}战力` },
       { text: item.kind === 'spell' ? '【法术】点击合法目标后释放' : '放置为 Lv1；同类叠加最高 Lv3', color: 0xb7f7a2, bold: true },
-      ...descriptions.slice(0, 7).map(text => ({ text: `- ${text}` })),
+      ...descriptions.map(text => ({ text: `- ${text}` })),
     ], x, y);
   }
+}
+
+function getBlockShopDescriptions(blockType: BlockType, combatPower: number): string[] {
+  const levels = [1, 2, 3] as const;
+  const descriptionsByLevel = levels.map(level => ({
+    level,
+    descriptions: getBlockEffectDescriptions(blockType, level).filter(line => !isLevelSummaryLine(line)),
+  }));
+
+  const occurrenceCount = new Map<string, number>();
+  for (const { descriptions } of descriptionsByLevel) {
+    for (const line of new Set(descriptions)) {
+      occurrenceCount.set(line, (occurrenceCount.get(line) ?? 0) + 1);
+    }
+  }
+  const staticDescriptions = new Set([...occurrenceCount.entries()]
+    .filter(([, count]) => count === levels.length)
+    .map(([line]) => line));
+
+  const lines = [`当前战力: ${combatPower}`];
+  for (const { level, descriptions } of descriptionsByLevel) {
+    const variableDescriptions = descriptions
+      .filter(line => !staticDescriptions.has(line))
+      .map(normalizeLevelDescription);
+    if (variableDescriptions.length > 0) {
+      lines.push(`Lv${level}: ${variableDescriptions.join('，')}`);
+    }
+  }
+
+  for (const description of descriptionsByLevel[0].descriptions) {
+    if (staticDescriptions.has(description)) lines.push(description);
+  }
+
+  return dedupe(lines);
+}
+
+function normalizeLevelDescription(line: string): string {
+  return line.replace(/[：:]\s*/u, ' ');
+}
+
+function isLevelSummaryLine(line: string): boolean {
+  return /Lv\s*1\s*\/\s*Lv\s*2\s*\/\s*Lv\s*3/i.test(line);
+}
+
+function dedupe(lines: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const line of lines) {
+    if (seen.has(line)) continue;
+    seen.add(line);
+    result.push(line);
+  }
+  return result;
 }
 
 function getSpellDescriptions(spellType: SpellType): string[] {

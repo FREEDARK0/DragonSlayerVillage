@@ -6,6 +6,7 @@ export interface BlockData {
   type: BlockType;
   level: number;
   combatPower: number;
+  generatedCombatPower?: number;
   tags: BlockTag[];
   shielded: boolean;
   targetColor?: number;
@@ -28,11 +29,10 @@ export function createBlock(type: BlockType, combatPower?: number, level: number
   };
 }
 
-export function createPowerStone(villageLevel: number): BlockData {
-  const minP = Math.max(1, villageLevel - 3);
-  const maxP = villageLevel + 3;
-  const p = randInt(minP, maxP);
-  return createBlock(BlockType.POWER_STONE, p);
+export function createPowerStone(level: number = 1, combatPower: number = randInt(1, 20)): BlockData {
+  const block = createBlock(BlockType.POWER_STONE, combatPower, level);
+  block.generatedCombatPower = combatPower;
+  return block;
 }
 
 /** 随机生成骑士/法师/巫毒之一 */

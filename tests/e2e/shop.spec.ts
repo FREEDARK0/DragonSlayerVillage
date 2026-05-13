@@ -28,6 +28,8 @@ type Snapshot = {
   turnRotationSteps: number;
   dragonTooltipVisible: boolean;
   shopTooltipVisible: boolean;
+  shopTooltipLines: string[];
+  shopTooltipLayout: { text: string; y: number; height: number; width: number }[];
 };
 
 type ShopBlockSnapshotItem = {
@@ -91,6 +93,20 @@ async function findAffordableOffer(page: import('@playwright/test').Page): Promi
     await expect.poll(async () => (await snapshot(page)).shop.offerSlots.filter(Boolean).length).toBeGreaterThan(0);
   }
   throw new Error('Could not find an affordable offer after reloading');
+}
+
+async function findOfferByPredicate(
+  page: import('@playwright/test').Page,
+  predicate: (item: ShopSnapshotItem) => boolean,
+): Promise<{ state: Snapshot; offerIndex: number; item: ShopSnapshotItem }> {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const state = await snapshot(page);
+    const offerIndex = state.shop.offerSlots.findIndex(item => item !== null && predicate(item));
+    if (offerIndex >= 0) return { state, offerIndex, item: state.shop.offerSlots[offerIndex] as ShopSnapshotItem };
+    await page.reload();
+    await expect.poll(async () => (await snapshot(page)).shop.offerSlots.filter(Boolean).length).toBeGreaterThan(0);
+  }
+  throw new Error('Could not find matching offer after reloading');
 }
 
 async function findAffordableBlockOffer(page: import('@playwright/test').Page, maxCost = Number.POSITIVE_INFINITY): Promise<{ state: Snapshot; offerIndex: number; item: ShopBlockSnapshotItem }> {
@@ -267,6 +283,42 @@ test('hovering a shop item shows and hides its description panel', async ({ page
   await expect.poll(async () => (await snapshot(page)).shopTooltipVisible).toBe(true);
   await page.mouse.move(20, affordable.state.screen.h - 20);
   await expect.poll(async () => (await snapshot(page)).shopTooltipVisible).toBe(false);
+});
+
+test('mine shop tooltip lists clean per-level income without repeated level summary', async ({ page }) => {
+  const mine = await findOfferByPredicate(page, item => item.kind === 'block' && item.type === 'mine');
+  const offerPos = slotCenter(mine.state.screen.w, 'offer', mine.offerIndex);
+
+  await page.mouse.move(offerPos.x, offerPos.y);
+  await expect.poll(async () => (await snapshot(page)).shopTooltipVisible).toBe(true);
+
+  const state = await snapshot(page);
+  const tooltipText = state.shopTooltipLines.join('\n');
+  expect(tooltipText).toContain('Lv1: 收入 +2/回合');
+  expect(tooltipText).toContain('Lv2: 收入 +4/回合');
+  expect(tooltipText).toContain('Lv3: 收入 +6/回合');
+  expect(tooltipText).not.toContain('Lv1/Lv2/Lv3');
+  expect(tooltipText).not.toContain('Lv1 Lv1');
+  expect(tooltipText).not.toContain('Lv2 Lv1');
+  expect(tooltipText).not.toContain('Lv3 Lv1');
+});
+
+test('shop tooltip wrapped lines use non-overlapping dynamic layout', async ({ page }) => {
+  const longOffer = await findOfferByPredicate(page, item => item.kind === 'spell' && item.spellType === 'shield_crush');
+  const offerPos = slotCenter(longOffer.state.screen.w, 'offer', longOffer.offerIndex);
+
+  await page.mouse.move(offerPos.x, offerPos.y);
+  await expect.poll(async () => (await snapshot(page)).shopTooltipVisible).toBe(true);
+
+  const state = await snapshot(page);
+  expect(state.shopTooltipLayout.length).toBeGreaterThan(2);
+  expect(state.shopTooltipLayout.some(line => line.height > 20)).toBe(true);
+  expect(state.shopTooltipLayout.every(line => line.width <= 210)).toBe(true);
+  for (let i = 1; i < state.shopTooltipLayout.length; i++) {
+    const previous = state.shopTooltipLayout[i - 1];
+    const current = state.shopTooltipLayout[i];
+    expect(current.y).toBeGreaterThanOrEqual(previous.y + previous.height + 3);
+  }
 });
 
 test('clicking an affordable offer places with one board click', async ({ page }) => {

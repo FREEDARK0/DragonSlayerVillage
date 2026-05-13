@@ -1,15 +1,14 @@
-import { DragonState, dragonTakeDamage } from '../models/Dragon';
+import { DragonState, markDragonDefeated, markDragonDeparted } from '../models/Dragon';
 import { OctagonBoard } from '../core/OctagonBoard';
 import { DragonActionType, DragonAction } from './actions/DragonAction';
 import { BreathAttack } from './actions/BreathAttack';
 import { EventBus } from '../core/EventBus';
 import { createEffectContext, EffectContext } from '../effects/EffectContext';
-import { applyBlockDestroyed, applyBreathHit } from '../effects/BlockEffectRegistry';
+import { applyBreathHit, createDragonFire, destroyBlockInContext, modifyIncomingBlockDamage } from '../effects/BlockEffectRegistry';
 import { getDragonBehavior } from '../effects/DragonBehaviorRegistry';
 import { GameState } from '../core/GameState';
 import { DragonPersonalityType } from '../config/dragonTypes';
 import { BlockType } from '../config/blockTypes';
-import { createDragonFire } from '../effects/BlockEffectRegistry';
 
 export interface DragonDecision {
   dragon: DragonState; actionType: DragonActionType;
@@ -34,6 +33,7 @@ export class DragonAI {
       if (!dragon.isAlive) continue;
       const behavior = getDragonBehavior(dragon.personality);
       const action = this.actions.get(DragonActionType.BREATH)!;
+      let attacked = false;
 
       let chainCount = 0;
       while (dragon.isAlive && chainCount < 8) {
@@ -42,6 +42,7 @@ export class DragonAI {
         const targetSectors = action.getAffectedSectors(logicalEdge, power);
         const decision: DragonDecision = { dragon, actionType: DragonActionType.BREATH, targetSectors, description: behavior.describe(dragon, targetSectors) };
         decisions.push(decision);
+        attacked = true;
 
         const destroyedBlock = this.executeDecision(decision, board, dragons, ctx);
         if (dragon.personality !== DragonPersonalityType.DESTRUCTIVE || !destroyedBlock) break;
@@ -50,6 +51,9 @@ export class DragonAI {
         chainCount++;
       }
 
+      if (attacked && dragon.personality === DragonPersonalityType.GLUTTONOUS) {
+        this.handleGluttonousAfterAttack(dragon, dragons, ctx);
+      }
       behavior.afterAction?.(dragon, ctx);
     }
     return decisions;
@@ -65,16 +69,18 @@ export class DragonAI {
       const block = board.getSector(s) ?? this.moveSensingWallIntoEmptyHit(s, board);
 
       if (!block) {
-        board.villagePower -= baseDmg;
+        ctx.state.applyVillagePowerDelta(-baseDmg, 'battle');
         behavior.onEmptySectorHit?.(dec.dragon, s, baseDmg, ctx);
         continue;
       }
 
-      const totalDmg = baseDmg;
+      const mode = dec.dragon.personality === DragonPersonalityType.ARROGANT && s !== centerSector ? 'increase' : 'damage';
+      const totalDmg = mode === 'damage'
+        ? modifyIncomingBlockDamage({ dragon: dec.dragon, sector: s, block, damage: baseDmg, allDragons, mode }, ctx)
+        : baseDmg;
       if (dec.dragon.personality === DragonPersonalityType.BRUTAL && block.type === BlockType.DRAGON_FIRE) {
         continue;
       }
-      const mode = dec.dragon.personality === DragonPersonalityType.ARROGANT && s !== centerSector ? 'increase' : 'damage';
       applyBreathHit({ dragon: dec.dragon, sector: s, block, damage: totalDmg, allDragons, mode }, ctx);
 
       if (mode === 'increase') {
@@ -85,16 +91,13 @@ export class DragonAI {
         dec.dragon.damageDealt += totalDmg;
 
         if (block.combatPower <= 0) {
-          const wasType = block.type;
-          board.removeBlock(s);
-          EventBus.emit('blockDestroyed', { sector: s, blockType: wasType, combatPower: block.combatPower });
-          applyBlockDestroyed(block, s, ctx, beforeDamage);
+          destroyBlockInContext(block, s, ctx, beforeDamage);
           behavior.afterBlockDestroyed?.(dec.dragon, s, ctx);
           destroyedBlock = true;
         }
 
         if (block.combatPower < 0) {
-          board.villagePower += block.combatPower;
+          ctx.state.applyVillagePowerDelta(block.combatPower, 'battle');
         }
       }
     }
@@ -134,12 +137,40 @@ export class DragonAI {
     }
   }
 
+  private handleGluttonousAfterAttack(dragon: DragonState, allDragons: DragonState[], ctx: EffectContext): void {
+    dragon.attackCount++;
+    if (!dragon.isAlive) return;
+
+    const target = allDragons
+      .filter(other => other.id !== dragon.id && other.isAlive && !ctx.isNight(other.edgeIndex))
+      .sort((a, b) => {
+        const da = circularDistance(a.edgeIndex, dragon.edgeIndex);
+        const db = circularDistance(b.edgeIndex, dragon.edgeIndex);
+        return da === db ? a.edgeIndex - b.edgeIndex : da - db;
+      })[0];
+
+    if (!target) return;
+
+    const gainedPower = target.combatPower;
+    markDragonDefeated(target, ctx.state.turnNumber + 6);
+    dragon.combatPower += gainedPower;
+    dragon.maxCombatPower += gainedPower;
+    dragon.edgeIndex = target.edgeIndex;
+
+    ctx.events.emit('dragonDied', {
+      dragonId: target.id,
+      sourceDragonId: dragon.id,
+      reason: 'gluttonous_consume',
+    });
+    ctx.addMessage(`${dragon.name}吞噬了${target.name}，战力 +${gainedPower}`);
+  }
+
   handlePostTurn(state: GameState): void {
     const ctx = createEffectContext(state);
     for (const dragon of state.dragons) {
       if (!dragon.isAlive) continue;
       const behavior = getDragonBehavior(dragon.personality);
-      if (behavior.shouldLeaveAfterTurn?.(dragon, ctx)) dragon.isAlive = false;
+      if (behavior.shouldLeaveAfterTurn?.(dragon, ctx)) markDragonDeparted(dragon);
     }
   }
 }

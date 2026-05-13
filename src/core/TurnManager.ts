@@ -1,12 +1,13 @@
 import { GameState, TurnState } from './GameState';
 import { SpawnSystem } from '../systems/SpawnSystem';
 import { DragonAI } from '../ai/DragonAI';
-import { createDragon } from '../models/Dragon';
+import { createDragon, resetDragonForSpawn, DragonState } from '../models/Dragon';
 import { getAvailableDragons } from '../config/dragonTypes';
 import { EventBus } from './EventBus';
 import { weightedPick } from '../utils/random';
 import { createEffectContext } from '../effects/EffectContext';
 import { calculateVillageIncome, getBlockEffect } from '../effects/BlockEffectRegistry';
+import { DragonTemplate } from '../config/dragonTypes';
 
 function getMaxDragons(turn: number): number {
   if (turn <= 3) return 2;
@@ -30,10 +31,11 @@ export class TurnManager {
 
   executeTurn(): void {
     this.state.turnState = TurnState.EXECUTING_TURN;
+    this.state.beginBattleVillagePowerTracking();
     const ctx = createEffectContext(this.state);
 
     const gain = calculateVillageIncome(ctx);
-    this.state.board.villagePower += gain;
+    this.state.applyVillagePowerDelta(gain, 'battle');
     this.prevVillagePower = this.state.board.villagePower;
 
     this.state.board.forEach((block, sector) => {
@@ -80,6 +82,7 @@ export class TurnManager {
     }
 
     for (const d of this.state.aliveDragons) d.turnCounter++;
+    this.state.finalizeBattleVillagePowerTracking();
     this.state.turnNumber++;
     this.state.turnRotationSteps = 0;
     this.state.turnState = TurnState.WAITING_FOR_INPUT;
@@ -104,11 +107,7 @@ export class TurnManager {
     const available = getAvailableDragons(this.state.year);
     if (available.length === 0) return;
 
-    // Allow multiple copies up to each template's quantity limit.
-    const liveByTemplate = new Map<string, number>();
-    for (const dragon of alive) {
-      liveByTemplate.set(dragon.templateId, (liveByTemplate.get(dragon.templateId) ?? 0) + 1);
-    }
+    const { liveByTemplate, readyByTemplate } = buildRespawnPools(this.state.dragons, nextTurn);
     const candidates = available.filter(t => (liveByTemplate.get(t.id) ?? 0) < t.quantity);
     if (candidates.length === 0) return;
 
@@ -119,9 +118,41 @@ export class TurnManager {
 
     const edge = free[Math.floor(Math.random() * free.length)];
     const template = weightedPick(candidates, candidates.map(d => d.spawnWeight));
-    const nd = createDragon(template, this.state.year, edge);
-    this.state.dragons.push(nd);
+    const nd = this.spawnOrReuseDragon(template, edge, readyByTemplate);
     this.state.addMessage(`${nd.name} 出现了！`);
     EventBus.emit('dragonAppeared', { dragon: nd });
   }
+
+  private spawnOrReuseDragon(template: DragonTemplate, edgeIndex: number, readyByTemplate: Map<string, DragonState[]>): DragonState {
+    const reusable = readyByTemplate.get(template.id)?.shift();
+    if (reusable) {
+      resetDragonForSpawn(reusable, template, this.state.year, edgeIndex);
+      return reusable;
+    }
+
+    const dragon = createDragon(template, this.state.year, edgeIndex);
+    this.state.dragons.push(dragon);
+    return dragon;
+  }
+}
+
+function buildRespawnPools(dragons: DragonState[], nextTurn: number): {
+  liveByTemplate: Map<string, number>;
+  readyByTemplate: Map<string, DragonState[]>;
+} {
+  const liveByTemplate = new Map<string, number>();
+  const readyByTemplate = new Map<string, DragonState[]>();
+
+  for (const dragon of dragons) {
+    if (dragon.isAlive || (dragon.respawnAvailableTurn !== null && dragon.respawnAvailableTurn > nextTurn)) {
+      liveByTemplate.set(dragon.templateId, (liveByTemplate.get(dragon.templateId) ?? 0) + 1);
+      continue;
+    }
+    if (dragon.respawnAvailableTurn !== null && dragon.respawnAvailableTurn <= nextTurn) {
+      if (!readyByTemplate.has(dragon.templateId)) readyByTemplate.set(dragon.templateId, []);
+      readyByTemplate.get(dragon.templateId)!.push(dragon);
+    }
+  }
+
+  return { liveByTemplate, readyByTemplate };
 }
