@@ -1,30 +1,30 @@
-import { BlockType, BLOCK_TYPE_TABLE } from '../config/blockTypes';
+import { BlockTag, BlockType, BLOCK_TYPE_TABLE } from '../config/blockTypes';
 import { randInt } from '../utils/random';
 
 export interface BlockData {
   id: number;
   type: BlockType;
-  value: number;
-  power: number;
+  level: number;
+  combatPower: number;
+  tags: BlockTag[];
   shielded: boolean;
-  attribute: string | null;
   targetColor?: number;
   targetDragonId?: string;
   /** 巨弩冷却 */
   cooldown: number;
-  /** 无法攻击标签 */
-  cannotAttack: boolean;
+  /** 风箱方向 1=CW, -1=CCW */
+  direction?: number;
 }
 
 let nextBlockId = 1;
 
-export function createBlock(type: BlockType, power?: number, value?: number): BlockData {
+export function createBlock(type: BlockType, combatPower?: number, level: number = 1): BlockData {
   const def = BLOCK_TYPE_TABLE[type];
-  const p = power ?? def.defaultPower;
+  const cp = combatPower ?? def.defaultPower;
   return {
     id: nextBlockId++,
-    type, value: value ?? p, power: p,
-    shielded: false, attribute: null, cooldown: 0, cannotAttack: false,
+    type, level, combatPower: cp, tags: [...(def.tags ?? [])],
+    shielded: false, cooldown: 0,
   };
 }
 
@@ -32,7 +32,7 @@ export function createPowerStone(villageLevel: number): BlockData {
   const minP = Math.max(1, villageLevel - 3);
   const maxP = villageLevel + 3;
   const p = randInt(minP, maxP);
-  return { id: nextBlockId++, type: BlockType.POWER_STONE, value: p, power: p, shielded: false, attribute: null, cooldown: 0, cannotAttack: false };
+  return createBlock(BlockType.POWER_STONE, p);
 }
 
 /** 随机生成骑士/法师/巫毒之一 */

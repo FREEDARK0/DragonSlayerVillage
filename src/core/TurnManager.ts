@@ -1,17 +1,18 @@
 import { GameState, TurnState } from './GameState';
 import { SpawnSystem } from '../systems/SpawnSystem';
 import { DragonAI } from '../ai/DragonAI';
-import { dragonTakeDamage, createDragon } from '../models/Dragon';
+import { createDragon } from '../models/Dragon';
 import { getAvailableDragons } from '../config/dragonTypes';
 import { EventBus } from './EventBus';
-import { BlockType, getVillageLevel } from '../config/blockTypes';
-import { SECTOR_COUNT } from '../utils/SectorUtils';
 import { weightedPick } from '../utils/random';
+import { createEffectContext } from '../effects/EffectContext';
+import { calculateVillageIncome, getBlockEffect } from '../effects/BlockEffectRegistry';
 
 function getMaxDragons(turn: number): number {
-  if (turn <= 3) return 1;
-  if (turn <= 10) return 2;
-  return 3;
+  if (turn <= 3) return 2;
+  if (turn <= 9) return 3;
+  if (turn <= 15) return 5;
+  return Number.POSITIVE_INFINITY;
 }
 
 export class TurnManager {
@@ -29,74 +30,26 @@ export class TurnManager {
 
   executeTurn(): void {
     this.state.turnState = TurnState.EXECUTING_TURN;
-    const rotSteps = this.state.turnRotationSteps;
+    const ctx = createEffectContext(this.state);
 
-    // 村庄 +5/回合 + 矿厂加成
-    let gain = 5;
-    this.state.board.forEach((b) => {
-      if (b?.type === BlockType.MINE) {
-        const level = getVillageLevel(this.state.board.villagePower);
-        gain += level >= 2 ? 6 : level >= 1 ? 4 : 2;
-      }
-    });
+    const gain = calculateVillageIncome(ctx);
     this.state.board.villagePower += gain;
     this.prevVillagePower = this.state.board.villagePower;
 
-    // 骑士 + 法师
-    this.state.board.forEach((b) => {
-      if (b?.type === BlockType.KNIGHT) { b.power += Math.abs(rotSteps); b.value += Math.abs(rotSteps); }
+    this.state.board.forEach((block, sector) => {
+      if (!block) return;
+      getBlockEffect(block.type)?.onPlayerPhase?.(block, sector, ctx);
     });
-    this.state.board.forEach((b, i) => {
-      if (b?.type !== BlockType.MAGE) return;
-      const left = this.state.board.getSector((i - 1 + 8) % 8);
-      const right = this.state.board.getSector((i + 1) % 8);
-      const dmg = b.power + (left?.power ?? 0) + (right?.power ?? 0);
-      for (const edgeIdx of [i, (i + 1) % 8]) {
-        const dragon = this.state.aliveDragons.find(d => d.edgeIndex === edgeIdx);
-        if (dragon) {
-          dragonTakeDamage(dragon, dmg);
-          this.state.addMessage(`法师对 ${dragon.name} 造成 ${dmg} 伤害`);
-          if (!dragon.isAlive) EventBus.emit('dragonDied', { dragonId: dragon.id });
-        }
-      }
+    this.state.board.forEach((block, sector) => {
+      if (!block) return;
+      getBlockEffect(block.type)?.onCooldown?.(block, sector, ctx);
     });
 
-    // ── 巨弩先攻 ──
-    for (let i = 0; i < 8; i++) {
-      const b = this.state.board.getSector(i);
-      if (!b || b.type !== BlockType.BALLISTA || b.cooldown > 0) continue;
-      const level = getVillageLevel(this.state.board.villagePower);
-      const mult = level >= 1 ? 3 : 2;
-      const dmg = b.power * mult;
-      const dragon = this.state.aliveDragons.find(d => d.edgeIndex === i);
-      if (dragon) {
-        dragonTakeDamage(dragon, dmg);
-        this.state.addMessage(`巨弩对 ${dragon.name} 造成 ${dmg} 伤害`);
-        b.cooldown = level >= 2 ? 1 : 2;
-        if (!dragon.isAlive) EventBus.emit('dragonDied', { dragonId: dragon.id });
-      }
-    }
-    // CD -1 & 压力石更新
-    for (let i = 0; i < 8; i++) {
-      const b = this.state.board.getSector(i);
-      if (b && b.cooldown > 0) b.cooldown--;
-      if (b && b.type === BlockType.PRESSURE_STONE) {
-        let total = 0;
-        for (const si of [i, (i - 1 + 8) % 8, (i + 1) % 8]) {
-          const dragon = this.state.aliveDragons.find(d => d.edgeIndex === si);
-          if (dragon) total += dragon.combatPower;
-        }
-        b.power = Math.round(total * 0.2);
-        b.value = b.power;
-      }
-    }
-
-    // 敌方回合
     this.state.turnState = TurnState.ENEMY_TURN;
     EventBus.emit('enemyTurnStart', {});
-    const decisions = this.dragonAI.executeTurn(this.state.aliveDragons, this.state.board, this.state.rotationAngle);
+    const decisions = this.dragonAI.executeTurn(this.state);
     for (const dec of decisions) this.state.addMessage(dec.description);
-    this.dragonAI.handlePostTurn(this.state.dragons, this.state.board, this.state.board.villagePower);
+    this.dragonAI.handlePostTurn(this.state);
 
     // 村庄检查
     if (this.state.board.villagePower <= 0) {
@@ -108,21 +61,21 @@ export class TurnManager {
     this.spawnDragonsByTurn();
     if (this.state.turnNumber > 0 && this.state.turnNumber % 30 === 0) this.state.year++;
 
-    // 黑夜伸缩：收缩从逆时针端移除，增长向顺时针端延伸
+    // 黑夜伸缩：每次减/增 2 个扇区
     if (!this.state.nightGrowing) {
-      // 收缩：逆时针端前进，长度-1
-      this.state.nightStart = (this.state.nightStart + 1) % 8;
-      this.state.nightLength--;
+      this.state.nightStart = (this.state.nightStart + 2) % 8;
+      this.state.nightLength -= 2;
       if (this.state.nightLength <= 0) {
         this.state.nightGrowing = true;
-        this.state.nightStart = 4; // 从扇区4开始顺时针增长
+        this.state.nightStart = 4;
+        this.state.nightLength = 0;
       }
     } else {
-      // 增长：顺时针端延伸，长度+1
-      this.state.nightLength++;
+      this.state.nightLength += 2;
       if (this.state.nightLength >= 8) {
         this.state.nightGrowing = false;
-        this.state.nightStart = 4; // 从扇区4开始逆时针收缩
+        this.state.nightStart = 4;
+        this.state.nightLength = 8;
       }
     }
 
@@ -134,11 +87,11 @@ export class TurnManager {
   }
 
   triggerBlockEffects(sectors: number[]): void {
-    for (const s of sectors) {
-      const block = this.state.board.getSector(s);
-      if (!block || block.type !== BlockType.POWER_STONE || block.value > 0) continue;
-      this.state.board.villagePower += block.power;
-      this.state.addMessage(`战力石 +${block.power} → 村庄`);
+    const ctx = createEffectContext(this.state);
+    for (const sector of sectors) {
+      const block = this.state.board.getSector(sector);
+      if (!block) continue;
+      getBlockEffect(block.type)?.onDestroyed?.(block, sector, ctx);
     }
   }
 
@@ -151,9 +104,12 @@ export class TurnManager {
     const available = getAvailableDragons(this.state.year);
     if (available.length === 0) return;
 
-    // 去除已有同名龙
-    const existingNames = new Set(alive.map(d => d.name));
-    const candidates = available.filter(t => !existingNames.has(t.name));
+    // Allow multiple copies up to each template's quantity limit.
+    const liveByTemplate = new Map<string, number>();
+    for (const dragon of alive) {
+      liveByTemplate.set(dragon.templateId, (liveByTemplate.get(dragon.templateId) ?? 0) + 1);
+    }
+    const candidates = available.filter(t => (liveByTemplate.get(t.id) ?? 0) < t.quantity);
     if (candidates.length === 0) return;
 
     // 去除已被占用的边

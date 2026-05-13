@@ -13,6 +13,6 @@ export class ArrogantPersonality implements DragonPersonality {
   shouldAnnounce(): boolean { return true; }
 
   describe(dragon: DragonState, _actionType: DragonActionType, targets: number[]): string {
-    return `${dragon.name}高傲地预告吐息！覆盖 ${targets.length} 个扇形`;
+    return `${dragon.name}高傲吐息！覆盖 ${targets.length} 个扇形`;
   }
 }

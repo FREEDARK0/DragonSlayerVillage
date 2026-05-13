@@ -10,14 +10,14 @@ export class HUD {
   constructor(private renderer: GameRenderer) {
     this.container = new Container();
     this.container.label = 'HUD';
-    renderer.getLayer(5).addChild(this.container);
+    renderer.getLayer(6).addChild(this.container);
     const w = this.renderer.screenW;
 
     // Top bar only
     const topBar = new Graphics();
     topBar.roundRect(10, 8, w - 20, 28, 6);
-    topBar.fill({ color: 0x16213e, alpha: 0.85 });
-    topBar.stroke({ width: 1, color: 0x334466 });
+    topBar.fill({ color: 0x24445a, alpha: 0.72 });
+    topBar.stroke({ width: 1, color: 0xf1cf86, alpha: 0.7 });
     this.container.addChild(topBar);
 
     this.yearText = new Text({ text: '第 1 年', style: { fontFamily: 'Arial', fontSize: 14, fill: 0xffcc44, fontWeight: 'bold' } });

@@ -12,7 +12,16 @@ import { InputManager } from './input/InputManager';
 import { GameState, TurnState } from './core/GameState';
 import { TurnManager } from './core/TurnManager';
 import { EventBus } from './core/EventBus';
-import { BlockType, getVillageLevel } from './config/blockTypes';
+import { ShopItem, getVillageLevel } from './config/blockTypes';
+import { ShopSystem } from './systems/ShopSystem';
+
+declare global {
+  interface Window {
+    __dragonSlayerGame?: {
+      getSnapshot: () => unknown;
+    };
+  }
+}
 
 export class Game {
   private renderer: GameRenderer;
@@ -28,6 +37,8 @@ export class Game {
   private inputManager!: InputManager;
   private state!: GameState;
   private turnManager!: TurnManager;
+  private shopSystem = new ShopSystem();
+  private sessionId = 0;
 
   constructor() { this.renderer = new GameRenderer(); }
 
@@ -43,22 +54,30 @@ export class Game {
     this.gameOverScreen = new GameOverScreen(this.renderer);
     this.shopPanel = new ShopPanel(this.renderer);
     this.inputManager = new InputManager();
-    this.shopPanel.onBuyWall = () => this.placeBuilding(BlockType.WOOD_WALL, 5);
-    this.shopPanel.onBuyBallista = () => this.placeBuilding(BlockType.BALLISTA, 60);
-    this.shopPanel.onBuyPressure = () => this.placeBuilding(BlockType.PRESSURE_STONE, 80);
-    this.shopPanel.onBuyMine = () => {
-      const cost = 10 + this.shopPanel.mineCost * 5;
-      if (this.state.board.villagePower >= cost) {
-        this.state.board.villagePower -= cost;
-        this.shopPanel.mineCost++;
-        this.placementMode = true;
-        this.placingType = BlockType.MINE;
-        this.state.addMessage('点击空三角形放置矿厂');
-        this.renderAll();
-        this.shopPanel.draw(); // refresh shop price
-      }
+    this.shopPanel.onUiPointerActivity = (event) => this.inputManager.suppressCurrentGesture(event);
+    this.shopPanel.onOfferDropped = (offerIndex, lockedIndex) => {
+      this.shopSystem.moveOfferToLocked(offerIndex, lockedIndex);
+      this.shopPanel.draw(this.shopSystem.state, this.shopSystem.selectedItem());
+      this.renderAll();
+    };
+    this.shopPanel.onLockedSelected = (lockedIndex) => {
+      const result = this.shopSystem.beginPlacementFromLockedWithPower(lockedIndex, this.state.board.villagePower);
+      const finalResult = this.resolveImmediateShopSelection(result);
+      this.state.addMessage(finalResult.message);
+      this.shopPanel.draw(this.shopSystem.state, this.shopSystem.selectedItem());
+      this.renderAll();
+    };
+    this.shopPanel.onOfferSelected = (offerIndex) => {
+      const result = this.shopSystem.beginPlacementFromOffer(offerIndex, this.state.board.villagePower);
+      const finalResult = this.resolveImmediateShopSelection(result);
+      this.state.addMessage(finalResult.message);
+      this.shopPanel.draw(this.shopSystem.state, this.shopSystem.selectedItem());
+      this.renderAll();
     };
     this.setupEvents();
+    window.__dragonSlayerGame = {
+      getSnapshot: () => this.getSnapshot(),
+    };
     this.startGame();
     const animate = () => {
       this.effectRenderer.update();
@@ -69,12 +88,15 @@ export class Game {
   }
 
   private startGame(): void {
+    this.sessionId++;
     this.state = new GameState();
     this.turnManager = new TurnManager(this.state);
+    this.shopSystem.reset();
     this.turnManager.initWorld();
     this.dragonRenderer.clear();
     this.effectRenderer.clear();
     this.gameOverScreen.hide();
+    this.shopPanel.draw(this.shopSystem.state, this.shopSystem.selectedItem());
     this.renderAll();
     this.enableInput();
   }
@@ -84,17 +106,21 @@ export class Game {
       this.phaseAnnouncement.show(payload.message);
     });
     EventBus.on('gameOver', (payload: { reason: string }) => {
+      this.state.gameOver = true;
+      this.state.gameOverReason = payload.reason;
       this.inputManager.disable(this.renderer.app.canvas as HTMLCanvasElement);
       this.gameOverScreen.show(this.state.turnNumber, this.state.year, payload.reason, () => this.startGame());
     });
     EventBus.on('dragonAttacked', (payload: { dragonId: string; sectors: number[]; actionType: string }) => {
       if (payload.actionType === 'summon_imp') return;
+      const currentSession = this.sessionId;
       this.dragonRenderer.animateAttack(payload.dragonId);
       this.effectRenderer.triggerScreenFlash(0xff4444, 12);
       const sectors = payload.sectors;
       const waveCount = sectors.length / 2;
       for (let wave = 0; wave < waveCount; wave++) {
         setTimeout(() => {
+          if (currentSession !== this.sessionId) return;
           const mid = sectors.length / 2;
           const left = sectors[mid - 1 - wave];
           const right = sectors[mid + wave];
@@ -107,7 +133,6 @@ export class Game {
           this.renderAll();
         }, wave * 600);
       }
-      setTimeout(() => { this.turnManager.triggerBlockEffects(sectors); this.renderAll(); }, waveCount * 600 + 600);
     });
     EventBus.on('blockDestroyed', (payload: { sector: number }) => {
       this.effectRenderer.startShrink(payload.sector);
@@ -117,32 +142,31 @@ export class Game {
 
   private enableInput(): void {
     const canvas = this.renderer.app.canvas as HTMLCanvasElement;
+    this.inputManager.setRotationAngle(this.state.rotationAngle);
     this.inputManager.enable(canvas, this.renderer.octagonCenterX, this.renderer.octagonCenterY, this.renderer.octagonRadius);
     this.inputManager.onRotate((delta) => {
       if (this.state.turnState !== TurnState.WAITING_FOR_INPUT) return;
+      if (this.shopSystem.selectedItem()) return;
       this.state.rotationAngle = ((this.state.rotationAngle + delta) % 360 + 360) % 360;
+      this.inputManager.setRotationAngle(this.state.rotationAngle);
       this.state.turnRotationSteps += delta / 45;
       this.renderAll();
     });
     this.inputManager.onConfirm(() => {
       if (this.state.gameOver) return;
 
-      if (this.placementMode && this.placingType) {
-        const sector = this.inputManager.getCurrentSector();
-        if (sector !== null) {
-          const level = getVillageLevel(this.state.board.villagePower);
-          let power: number;
-          const type = this.placingType;
-          if (type === BlockType.WOOD_WALL) power = level >= 2 ? 50 : level >= 1 ? 25 : 10;
-          else if (type === BlockType.BALLISTA) power = level >= 2 ? 30 : level >= 1 ? 15 : 5;
-          else if (type === BlockType.MINE) power = 10;
-          else power = 0;
-          const cannotAttack = type === BlockType.WOOD_WALL || type === BlockType.PRESSURE_STONE || type === BlockType.MINE;
-          this.state.board.setSector(sector, { id: Date.now(), type, value: power, power, shielded: false, attribute: null, cooldown: 0, cannotAttack });
-          this.placementMode = false;
-          this.placingType = null;
-          this.state.addMessage('建筑已放置');
+      if (this.shopSystem.selectedItem()) {
+        if (this.inputManager.isCurrentPointerOutsideOctagon()) {
+          this.shopSystem.cancelPlacement();
+          this.state.addMessage('已取消购买');
+          this.shopPanel.draw(this.shopSystem.state, this.shopSystem.selectedItem());
+          this.renderAll();
+          return;
         }
+        const sector = this.inputManager.getCurrentSector();
+        const result = this.shopSystem.tryPlaceSelectedItem(this.state, sector);
+        this.state.addMessage(result.message);
+        this.shopPanel.draw(this.shopSystem.state, this.shopSystem.selectedItem());
         this.renderAll();
         return;
       }
@@ -150,43 +174,13 @@ export class Game {
       if (this.state.turnState !== TurnState.WAITING_FOR_INPUT) return;
       this.inputManager.disable(canvas);
       this.turnManager.executeTurn();
+      this.shopPanel.draw(this.shopSystem.state, this.shopSystem.selectedItem());
       this.renderAll();
       if (!this.state.gameOver) {
-        setTimeout(() => { if (!this.state.gameOver) { this.enableInput(); this.renderAll(); } }, 600);
+        const currentSession = this.sessionId;
+        setTimeout(() => { if (!this.state.gameOver && currentSession === this.sessionId) { this.enableInput(); this.renderAll(); } }, 600);
       }
     });
-  }
-
-  private placementMode = false;
-  private placingType: BlockType | null = null;
-
-  private placeBuilding(type: BlockType, cost: number): void {
-    if (this.state.board.villagePower < cost) return;
-    this.state.board.villagePower -= cost;
-    const level = getVillageLevel(this.state.board.villagePower);
-    let power: number;
-    if (type === BlockType.WOOD_WALL) {
-      power = level >= 2 ? 50 : level >= 1 ? 25 : 10;
-    } else if (type === BlockType.BALLISTA) {
-      power = level >= 2 ? 30 : level >= 1 ? 15 : 5;
-    } else {
-      power = 0; // pressure stone
-    }
-
-    if (type === BlockType.WOOD_WALL && level < 2) {
-      // Random placement for low-level wood wall
-      const empty = this.state.board.getEmptySectors();
-      if (empty.length > 0) {
-        const s = empty[Math.floor(Math.random() * empty.length)];
-        this.state.board.setSector(s, { id: Date.now(), type, value: power, power, shielded: false, attribute: null, cooldown: 0, cannotAttack: true });
-      }
-    } else {
-      // Manual placement
-      this.placementMode = true;
-      this.placingType = type;
-      this.state.addMessage('点击一个三角形放置建筑');
-    }
-    this.renderAll();
   }
 
   private renderAll(): void {
@@ -196,5 +190,58 @@ export class Game {
     const villagePower = this.state.board.villagePower;
     const villageLevel = getVillageLevel(villagePower);
     this.hud.update(villagePower, villageLevel, this.state.turnNumber, this.state.year, 'calm' as any, this.state.messages, this.state.rotationAngle);
+  }
+
+  private resolveImmediateShopSelection(result: { ok: boolean; message: string }): { ok: boolean; message: string } {
+    const selected = this.shopSystem.selectedItem();
+    if (!result.ok || !selected || selected.item.kind !== 'spell' || selected.item.spellType !== 'bulwark') return result;
+    return this.shopSystem.tryPlaceSelectedItem(this.state, null);
+  }
+
+  private serializeShopItem(item: ShopItem | null): unknown {
+    if (!item) return null;
+    return item.kind === 'block'
+      ? { id: item.id, kind: item.kind, type: item.blockType, label: item.label, cost: item.cost, combatPower: item.combatPower, tags: item.tags }
+      : { id: item.id, kind: item.kind, spellType: item.spellType, label: item.label, cost: item.cost, tags: item.tags };
+  }
+
+  private getSnapshot(): unknown {
+    return {
+      turnNumber: this.state.turnNumber,
+      villagePower: this.state.board.villagePower,
+      board: this.state.board.sectors.map(block => block ? { type: block.type, combatPower: block.combatPower, level: block.level ?? 1, tags: block.tags } : null),
+      dragons: this.state.aliveDragons.map(dragon => ({
+        id: dragon.id,
+        templateId: dragon.templateId,
+        name: dragon.name,
+        personality: dragon.personality,
+        combatPower: dragon.combatPower,
+        maxCombatPower: dragon.maxCombatPower,
+        attackMultiplier: dragon.attackMultiplier,
+        hasTakenDamage: dragon.hasTakenDamage,
+        screen: this.dragonRenderer.getDragonScreenPosition(dragon.id),
+      })),
+      shop: {
+        lockedSlots: this.shopSystem.state.lockedSlots.map(item => this.serializeShopItem(item)),
+        offerSlots: this.shopSystem.state.offerSlots.map(item => this.serializeShopItem(item)),
+        selectedItem: this.shopSystem.selectedItem() ? {
+          area: this.shopSystem.selectedItem()!.area,
+          index: this.shopSystem.selectedItem()!.index,
+          item: this.serializeShopItem(this.shopSystem.selectedItem()!.item),
+        } : null,
+      },
+      screen: {
+        w: this.renderer.screenW,
+        h: this.renderer.screenH,
+        octagonCenterX: this.renderer.octagonCenterX,
+        octagonCenterY: this.renderer.octagonCenterY,
+        octagonRadius: this.renderer.octagonRadius,
+      },
+      gameOver: this.state.gameOver,
+      rotationAngle: this.state.rotationAngle,
+      turnRotationSteps: this.state.turnRotationSteps,
+      dragonTooltipVisible: this.dragonRenderer.isTooltipVisible(),
+      shopTooltipVisible: this.shopPanel.isTooltipVisible(),
+    };
   }
 }

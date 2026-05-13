@@ -6,10 +6,10 @@ export class CombatSystem {
   damageBlock(board: OctagonBoard, sector: number, damage: number): void {
     const block = board.getSector(sector);
     if (!block) return;
-    block.value -= damage;
-    if (block.value <= 0) {
+    block.combatPower -= damage;
+    if (block.combatPower <= 0) {
       board.removeBlock(sector);
-      EventBus.emit('blockDestroyed', { sector, blockType: block.type, value: block.value });
+      EventBus.emit('blockDestroyed', { sector, blockType: block.type, combatPower: block.combatPower });
     }
   }
 }

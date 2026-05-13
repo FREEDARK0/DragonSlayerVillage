@@ -2,33 +2,28 @@ import { Container, Graphics, Text } from 'pixi.js';
 import { GameRenderer } from './GameRenderer';
 import { DragonState } from '../models/Dragon';
 import { DragonPersonalityType } from '../config/dragonTypes';
-import { GAME_CONSTANTS } from '../config/constants';
 import { SECTOR_COUNT, edgeBreathSectors, sectorStartAngle, sectorEndAngle } from '../utils/SectorUtils';
-
-/** 根据龙的性格返回吐息威力 */
-function getBreathPower(dragon: DragonState): number {
-  switch (dragon.personality) {
-    case DragonPersonalityType.ARROGANT: return dragon.turnCounter % 2 === 0 ? 3 : 2;
-    case DragonPersonalityType.DESTRUCTIVE: return dragon.turnCounter % 2 === 0 ? 2 : 1;
-    default: return 1;
-  }
-}
+import { getDragonBehavior } from '../effects/DragonBehaviorRegistry';
+import { TooltipPanel } from '../ui/TooltipPanel';
 
 export class DragonRenderer {
   private container: Container;
   private dragonGraphics: Map<string, Container> = new Map();
   private previewOutline: Graphics;
+  private tooltip: TooltipPanel;
   private rotationDeg = 0;
 
   constructor(private renderer: GameRenderer) {
     this.container = new Container();
     this.container.label = 'DragonRenderer';
     this.container.eventMode = 'static';
-    renderer.getLayer(4).addChild(this.container);
+    renderer.getLayer(5).addChild(this.container); // DRAGONS
 
     this.previewOutline = new Graphics();
     this.previewOutline.label = 'DragonPreviewOutline';
     renderer.getLayer(3).addChild(this.previewOutline);
+
+    this.tooltip = new TooltipPanel(renderer, 'DragonTooltip');
   }
 
   /** 清除所有龙 */
@@ -36,6 +31,7 @@ export class DragonRenderer {
     this.container.removeChildren();
     this.dragonGraphics.clear();
     this.previewOutline.clear();
+    this.tooltip.hide();
   }
 
   /** 渲染所有龙立绘在上半圆弧上 */
@@ -86,10 +82,12 @@ export class DragonRenderer {
         dContainer.on('pointerover', () => {
           dContainer!.scale.set(1.1);
           this.drawPreviewOutline(dragon);
+          this.showDragonTooltip(dragon, x, y);
         });
         dContainer.on('pointerout', () => {
           dContainer!.scale.set(1.0);
           this.previewOutline.clear();
+          this.hideDragonTooltip();
         });
 
         this.container.addChild(dContainer);
@@ -120,8 +118,14 @@ export class DragonRenderer {
       case DragonPersonalityType.GOLD:
         this.drawGoldDragon(g, size, dragon.color);
         break;
+      case DragonPersonalityType.WYVERN:
+        this.drawWyvernDragon(g, size, dragon.color);
+        break;
       case DragonPersonalityType.BRUTAL:
         this.drawBrutalDragon(g, size, dragon.color);
+        break;
+      default:
+        this.drawArrogantDragon(g, size, dragon.color);
         break;
     }
 
@@ -175,7 +179,7 @@ export class DragonRenderer {
     const R = this.renderer.octagonRadius;
     const rotSteps = Math.round(this.rotationDeg / 45);
 
-    const power = getBreathPower(dragon);
+    const power = getDragonBehavior(dragon.personality).breathPower(dragon);
     const logicalEdge = ((dragon.edgeIndex - rotSteps) % 8 + 8) % 8;
     const sectors = edgeBreathSectors(logicalEdge, power);
 
@@ -193,6 +197,22 @@ export class DragonRenderer {
     this.previewOutline.lineTo(cx, cy);
     this.previewOutline.closePath();
     this.previewOutline.stroke({ width: 4, color: 0xff4444, alpha: 0.85, join: 'round' });
+  }
+
+  private showDragonTooltip(dragon: DragonState, dragonX: number, dragonY: number): void {
+    const behavior = getDragonBehavior(dragon.personality);
+    const effects = behavior.effectDescriptions?.(dragon) ?? ['标准吐息'];
+    const attack = Math.round(dragon.combatPower * dragon.attackMultiplier);
+    this.tooltip.show([
+      { text: dragon.name },
+      { text: `战力: ${dragon.combatPower}/${dragon.maxCombatPower}` },
+      { text: `攻击倍率: x${dragon.attackMultiplier.toFixed(2)}  伤害: ${attack}` },
+      ...effects.map(effect => ({ text: `- ${effect}` })),
+    ], dragonX, dragonY);
+  }
+
+  private hideDragonTooltip(): void {
+    this.tooltip.hide();
   }
 
   private drawGoldDragon(g: Graphics, size: number, color: number): void {
@@ -229,6 +249,38 @@ export class DragonRenderer {
     g.fill(0xff4400);
   }
 
+  private drawWyvernDragon(g: Graphics, size: number, color: number): void {
+    // Lean body with oversized wings.
+    g.ellipse(0, size * 0.05, size * 0.3, size * 0.65);
+    g.fill(color);
+    g.stroke({ width: 1.5, color: lightenColor(color, 0.35) });
+
+    g.poly([
+      -size * 0.25, -size * 0.1,
+      -size * 1.05, -size * 0.75,
+      -size * 0.75, size * 0.25,
+    ]);
+    g.fill(darkenColor(color, 0.25));
+    g.poly([
+      size * 0.25, -size * 0.1,
+      size * 1.05, -size * 0.75,
+      size * 0.75, size * 0.25,
+    ]);
+    g.fill(darkenColor(color, 0.25));
+
+    g.poly([
+      0, -size * 0.75,
+      size * 0.22, -size * 0.25,
+      -size * 0.22, -size * 0.25,
+    ]);
+    g.fill(lightenColor(color, 0.15));
+
+    g.circle(-size * 0.08, -size * 0.42, size * 0.08);
+    g.fill(0xffffff);
+    g.circle(size * 0.08, -size * 0.42, size * 0.08);
+    g.fill(0xffffff);
+  }
+
   /** 龙攻击动画：缓慢放大→停顿→缓慢缩小 */
   animateAttack(dragonId: string): void {
     const dContainer = this.dragonGraphics.get(dragonId);
@@ -252,6 +304,16 @@ export class DragonRenderer {
       }
     };
     this.renderer.app.ticker.add(tick);
+  }
+
+  getDragonScreenPosition(dragonId: string): { x: number; y: number } | null {
+    const container = this.dragonGraphics.get(dragonId);
+    if (!container || !container.visible) return null;
+    return { x: container.position.x, y: container.position.y };
+  }
+
+  isTooltipVisible(): boolean {
+    return this.tooltip.isVisible();
   }
 
   private drawHighlight(container: Container, dragon: DragonState): void {

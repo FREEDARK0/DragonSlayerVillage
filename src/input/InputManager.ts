@@ -1,3 +1,10 @@
+import { pixelToSector } from '../utils/SectorUtils';
+
+type PointerLike = {
+  pointerId?: number;
+  type?: string;
+};
+
 export class InputManager {
   private onConfirmCallback: (() => void) | null = null;
   private onRotateCallback: ((delta: number) => void) | null = null;
@@ -8,7 +15,12 @@ export class InputManager {
   private centerY = 0;
   private dragThreshold = 450;
   private accumDist = 0;
+  private gestureDist = 0;
   private currentSector: number | null = null;
+  private currentPointerOutsideOctagon = false;
+  private suppressPointerId: number | null = null;
+  private suppressNextConfirm = false;
+  private rotationDeg = 0;
 
   private boundMove: (e: PointerEvent) => void;
   private boundDown: (e: PointerEvent) => void;
@@ -43,26 +55,31 @@ export class InputManager {
   onRotate(cb: (delta: number) => void): void { this.onRotateCallback = cb; }
   onConfirm(cb: () => void): void { this.onConfirmCallback = cb; }
   getCurrentSector(): number | null { return this.currentSector; }
+  isCurrentPointerOutsideOctagon(): boolean { return this.currentPointerOutsideOctagon; }
+  setRotationAngle(deg: number): void { this.rotationDeg = deg; }
+  suppressCurrentGesture(event?: PointerLike): void {
+    if (event?.type === 'pointerup') return;
+    if (event?.pointerId !== undefined) {
+      this.suppressPointerId = event.pointerId;
+      return;
+    }
+    this.suppressNextConfirm = true;
+  }
 
   private onPointerDown(e: PointerEvent): void {
     this.lastX = e.clientX;
     this.lastY = e.clientY;
     this.accumDist = 0;
+    this.gestureDist = 0;
+    this.updateCurrentSector(e);
   }
 
   private onPointerMove(e: PointerEvent): void {
     if (!this.enabled) return;
-    // Track sector under mouse
+    this.updateCurrentSector(e);
     const dxc = e.clientX - this.centerX;
     const dyc = e.clientY - this.centerY;
     const distToCenter = Math.sqrt(dxc * dxc + dyc * dyc);
-    if (distToCenter < 15) { this.currentSector = null; }
-    else {
-      const angle = Math.atan2(dyc, dxc);
-      let a = angle;
-      if (a < 0) a += Math.PI * 2;
-      this.currentSector = Math.floor(a / (Math.PI / 4)) % 8;
-    }
     if (distToCenter > this.octagonRadius) return;
 
     const cx = e.clientX;
@@ -71,10 +88,11 @@ export class InputManager {
     const dy = cy - this.lastY;
     const dist = Math.sqrt(dx * dx + dy * dy);
     this.accumDist += dist;
+    this.gestureDist += dist;
     if (this.accumDist < this.dragThreshold) return; // don't update lastX/Y until threshold met
     this.accumDist = 0;
 
-    // Cross product: (prev-center) × (curr-center) determines rotation direction
+    // Cross product: (prev-center) x (curr-center) determines rotation direction
     const px = this.lastX - this.centerX;
     const py = this.lastY - this.centerY;
     const ncx = cx - this.centerX;
@@ -87,8 +105,47 @@ export class InputManager {
     this.onRotateCallback?.(delta);
   }
 
-  private onPointerUp(_e: PointerEvent): void {
+  private updateCurrentSector(e: PointerEvent): void {
+    const dxc = e.clientX - this.centerX;
+    const dyc = e.clientY - this.centerY;
+    const distToCenter = Math.sqrt(dxc * dxc + dyc * dyc);
+    this.currentPointerOutsideOctagon = !this.isInsideOctagon(dxc, dyc);
+    if (this.currentPointerOutsideOctagon || distToCenter < 15) this.currentSector = null;
+    else this.currentSector = pixelToSector(dxc, dyc, this.rotationDeg);
+  }
+
+  private isInsideOctagon(dx: number, dy: number): boolean {
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist > this.octagonRadius) return false;
+
+    const sectorAngle = Math.PI / 4;
+    const halfSector = sectorAngle / 2;
+    const angle = Math.atan2(dy, dx) - this.rotationDeg * Math.PI / 180;
+    const normalized = (angle % sectorAngle + sectorAngle) % sectorAngle;
+    const deltaFromSideCenter = normalized - halfSector;
+    const apothem = this.octagonRadius * Math.cos(halfSector);
+    const maxRadius = apothem / Math.cos(deltaFromSideCenter);
+    return dist <= maxRadius + 0.001;
+  }
+
+  private shouldSuppressConfirm(e: PointerEvent): boolean {
+    if (this.suppressPointerId === e.pointerId) {
+      this.suppressPointerId = null;
+      this.suppressNextConfirm = false;
+      return true;
+    }
+    if (this.suppressNextConfirm) {
+      this.suppressNextConfirm = false;
+      return true;
+    }
+    return false;
+  }
+
+  private onPointerUp(e: PointerEvent): void {
     if (!this.enabled) return;
+    this.updateCurrentSector(e);
+    if (this.shouldSuppressConfirm(e)) return;
+    if (this.gestureDist > 8) return;
     this.onConfirmCallback?.();
   }
 }

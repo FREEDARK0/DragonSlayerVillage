@@ -3,22 +3,11 @@ import { SECTOR_COUNT } from '../utils/SectorUtils';
 
 export class OctagonBoard {
   sectors: (BlockData | null)[];
-  /** 每个扇区的属性 (gold/strength/life/light/dark) */
-  attributes: (string | null)[];
   /** 中心村庄战力 */
   villagePower: number = 50;
 
   constructor() {
     this.sectors = new Array(SECTOR_COUNT).fill(null);
-    this.attributes = new Array(SECTOR_COUNT).fill(null);
-  }
-
-  getAttribute(sector: number): string | null {
-    return this.attributes[sector] ?? null;
-  }
-
-  setAttribute(sector: number, attr: string | null): void {
-    this.attributes[sector] = attr;
   }
 
   getSector(index: number): BlockData | null {

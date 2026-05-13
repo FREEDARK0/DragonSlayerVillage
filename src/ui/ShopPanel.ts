@@ -1,144 +1,255 @@
 import { Container, Graphics, Text } from 'pixi.js';
 import { GameRenderer } from '../rendering/GameRenderer';
+import { RenderLayer } from '../rendering/GameRenderer';
+import { BLOCK_TYPE_TABLE, ShopItem, SpellType } from '../config/blockTypes';
+import { getBlockEffectDescriptions } from '../effects/BlockEffectRegistry';
+import { LOCKED_SLOT_COUNT, OFFER_SLOT_COUNT, ShopSelection, ShopState } from '../systems/ShopSystem';
+import { TooltipPanel } from './TooltipPanel';
 
 export class ShopPanel {
   private container: Container;
-  visible = false;
-  mineCost = 0; // increments each purchase
-  onBuyWall: (() => void) | null = null;
-  onBuyBallista: (() => void) | null = null;
-  onBuyPressure: (() => void) | null = null;
-  onBuyMine: (() => void) | null = null;
+  onOfferDropped: ((offerIndex: number, lockedIndex: number) => void) | null = null;
+  onLockedSelected: ((lockedIndex: number) => void) | null = null;
+  onOfferSelected: ((offerIndex: number) => void) | null = null;
+  onUiPointerActivity: ((event?: { pointerId?: number; type?: string }) => void) | null = null;
+  private dragging: { item: ShopItem; offerIndex: number } | null = null;
+  private dragGraphics = new Graphics();
+  private tooltip: TooltipPanel;
 
   constructor(private renderer: GameRenderer) {
     this.container = new Container();
     this.container.label = 'ShopPanel';
-    renderer.getLayer(5).addChild(this.container);
-    this.draw();
+    this.container.eventMode = 'static';
+    renderer.getLayer(RenderLayer.UI).addChild(this.container);
+    this.tooltip = new TooltipPanel(renderer, 'ShopTooltip');
   }
 
-  draw(): void {
+  draw(state: ShopState, selected: ShopSelection | null = null): void {
+    this.tooltip.hide();
     this.container.removeChildren();
-    this.container.visible = true;
-    this.visible = true;
     const w = this.renderer.screenW;
-    const slotCount = 6;
-    const slotW = 80;
-    const slotH = 90;
-    const gap = 8;
-    const totalW = slotCount * slotW + (slotCount - 1) * gap;
+    const slotW = 80; const slotH = 90; const gap = 10;
+    const totalSlots = LOCKED_SLOT_COUNT + OFFER_SLOT_COUNT;
+    const totalW = totalSlots * slotW + (totalSlots - 1) * gap;
     const startX = (w - totalW) / 2;
     const y = 50;
 
     const bg = new Graphics();
-    bg.roundRect(startX - 10, y - 10, totalW + 20, slotH + 20, 8);
-    bg.fill({ color: 0x1a1a3e, alpha: 0.95 });
-    bg.stroke({ width: 2, color: 0x444488 });
+    bg.roundRect(startX - 14, y - 12, totalW + 28, slotH + 56, 8);
+    bg.fill({ color: 0x21374a, alpha: 0.78 });
+    bg.stroke({ width: 2, color: 0xd7b46a, alpha: 0.7 });
     this.container.addChild(bg);
 
-    // Wood wall slot (first slot)
-    const sx = startX;
-    const slot = new Graphics();
-    slot.roundRect(sx, y + 12, slotW, slotH, 6);
-    slot.fill({ color: 0x3a3520, alpha: 0.8 });
-    slot.stroke({ width: 2, color: 0x8B6914 });
-    slot.eventMode = 'static';
-    slot.cursor = 'pointer';
-    slot.on('pointerdown', () => this.onBuyWall?.());
-    this.container.addChild(slot);
+    // Left zone label
+    const leftLabel = new Text({ text: '🔒', style: { fontFamily: 'Arial', fontSize: 12 } });
+    leftLabel.position.set(startX + (LOCKED_SLOT_COUNT * slotW + (LOCKED_SLOT_COUNT - 1) * gap) / 2, y - 6); leftLabel.eventMode = 'none'; this.container.addChild(leftLabel);
+    const rightLabel = new Text({ text: '🔄', style: { fontFamily: 'Arial', fontSize: 12 } });
+    rightLabel.position.set(startX + LOCKED_SLOT_COUNT * (slotW + gap) + (OFFER_SLOT_COUNT * slotW + (OFFER_SLOT_COUNT - 1) * gap) / 2, y - 6); rightLabel.eventMode = 'none'; this.container.addChild(rightLabel);
+    const title = new Text({ text: '商店', style: { fontFamily: 'Arial', fontSize: 13, fill: 0xffcc44, fontWeight: 'bold' } });
+    title.anchor.set(0.5, 0); title.position.set(w / 2, y - 2); title.eventMode = 'none'; this.container.addChild(title);
 
-    const icon = new Text({
-      text: '🪵',
-      style: { fontFamily: 'Arial', fontSize: 24 },
-    });
-    icon.anchor.set(0.5);
-    icon.position.set(sx + slotW / 2, y + 30);
-    this.container.addChild(icon);
-
-    const label = new Text({
-      text: '木墙',
-      style: { fontFamily: 'Arial', fontSize: 11, fill: 0xddcc88 },
-    });
-    label.anchor.set(0.5);
-    label.position.set(sx + slotW / 2, y + 60);
-    this.container.addChild(label);
-
-    const price = new Text({
-      text: '5战力',
-      style: { fontFamily: 'Arial', fontSize: 10, fill: 0x88cc88 },
-    });
-    price.anchor.set(0.5);
-    price.position.set(sx + slotW / 2, y + 78);
-    this.container.addChild(price);
-
-    // Ballista slot (slot 2)
-    const bx = startX + slotW + gap;
-    const bSlot = new Graphics();
-    bSlot.roundRect(bx, y + 12, slotW, slotH, 6);
-    bSlot.fill({ color: 0x2a2a35, alpha: 0.8 });
-    bSlot.stroke({ width: 2, color: 0x888888 });
-    bSlot.eventMode = 'static'; bSlot.cursor = 'pointer';
-    bSlot.on('pointerdown', () => this.onBuyBallista?.());
-    this.container.addChild(bSlot);
-    this.addSlotText('🏹', '巨弩', '60战力', bx, y, slotW);
-
-    // Pressure stone slot (slot 3)
-    const px = startX + (slotW + gap) * 2;
-    const pSlot = new Graphics();
-    pSlot.roundRect(px, y + 12, slotW, slotH, 6);
-    pSlot.fill({ color: 0x352a3a, alpha: 0.8 });
-    pSlot.stroke({ width: 2, color: 0x6644aa });
-    pSlot.eventMode = 'static'; pSlot.cursor = 'pointer';
-    pSlot.on('pointerdown', () => this.onBuyPressure?.());
-    this.container.addChild(pSlot);
-    this.addSlotText('🪨', '压力石', '80战力', px, y, slotW);
-
-    // Mine slot (slot 4)
-    const mx = startX + (slotW + gap) * 3;
-    const mSlot = new Graphics();
-    mSlot.roundRect(mx, y + 12, slotW, slotH, 6);
-    mSlot.fill({ color: 0x353525, alpha: 0.8 });
-    mSlot.stroke({ width: 2, color: 0x888855 });
-    mSlot.eventMode = 'static'; mSlot.cursor = 'pointer';
-    mSlot.on('pointerdown', () => this.onBuyMine?.());
-    this.container.addChild(mSlot);
-    this.addSlotText('⛏', '矿厂', `${10 + this.mineCost * 5}战力`, mx, y, slotW);
-
-    // Empty slots
-    for (let i = 4; i < slotCount; i++) {
-      const ex = startX + i * (slotW + gap);
-      const es = new Graphics();
-      es.roundRect(ex, y + 12, slotW, slotH, 6);
-      es.fill({ color: 0x223344, alpha: 0.6 });
-      es.stroke({ width: 1, color: 0x446688 });
-      this.container.addChild(es);
-
-      const q = new Text({ text: '?', style: { fontFamily: 'Arial', fontSize: 20, fill: 0x556677 } });
-      q.anchor.set(0.5);
-      q.position.set(ex + slotW / 2, y + 12 + slotH / 2);
-      this.container.addChild(q);
+    // Left slots
+    for (let i = 0; i < LOCKED_SLOT_COUNT; i++) {
+      const item = state.lockedSlots[i];
+      this.drawSlot(startX + i * (slotW + gap), y + 10, item, selected?.area === 'locked' && selected.index === i, (event) => {
+        this.onUiPointerActivity?.(event);
+        if (item) this.onLockedSelected?.(i);
+      });
     }
 
-    const title = new Text({
-      text: '商店',
-      style: { fontFamily: 'Arial', fontSize: 14, fill: 0xffcc44, fontWeight: 'bold' },
-    });
-    title.anchor.set(0.5, 0);
-    title.position.set(w / 2, y - 6);
-    this.container.addChild(title);
+    // Divider
+    const div = new Graphics();
+    div.rect(startX + LOCKED_SLOT_COUNT * slotW + (LOCKED_SLOT_COUNT - 0.5) * gap, y + 5, 2, slotH + 10);
+    div.fill(0x444488);
+    this.container.addChild(div);
+
+    // Right slots (draggable)
+    for (let i = 0; i < OFFER_SLOT_COUNT; i++) {
+      const item = state.offerSlots[i];
+      const sx = startX + (LOCKED_SLOT_COUNT + i) * (slotW + gap);
+      this.drawSlot(sx, y + 10, item, selected?.area === 'offer' && selected.index === i, (event) => {
+        this.onUiPointerActivity?.(event);
+        if (item) this.startOfferGesture(item, i, event);
+      });
+    }
+
+    if (selected) {
+      const hint = new Text({
+        text: '选择放置的扇区',
+        style: { fontFamily: 'Arial', fontSize: 15, fill: 0xfff0bb, fontWeight: 'bold', stroke: { color: 0x21374a, width: 3 } },
+      });
+      hint.anchor.set(0.5, 0);
+      hint.position.set(w / 2, y + slotH + 26);
+      hint.eventMode = 'none';
+      this.container.addChild(hint);
+    }
   }
 
-  private addSlotText(icon: string, name: string, price: string, sx: number, y: number, slotW: number): void {
-    const i = new Text({ text: icon, style: { fontFamily: 'Arial', fontSize: 24 } });
-    i.anchor.set(0.5); i.position.set(sx + slotW / 2, y + 30); this.container.addChild(i);
-    const l = new Text({ text: name, style: { fontFamily: 'Arial', fontSize: 11, fill: 0xddcc88 } });
-    l.anchor.set(0.5); l.position.set(sx + slotW / 2, y + 60); this.container.addChild(l);
-    const p = new Text({ text: price, style: { fontFamily: 'Arial', fontSize: 10, fill: 0x88cc88 } });
-    p.anchor.set(0.5); p.position.set(sx + slotW / 2, y + 78); this.container.addChild(p);
+  private drawSlot(sx: number, sy: number, item: ShopItem | null, selected: boolean, onClick: (event: any) => void): void {
+    const g = new Graphics();
+    const scale = selected ? 1.1 : 1;
+    const w = 80 * scale;
+    const h = 90 * scale;
+    const x = sx - (w - 80) / 2;
+    const y = sy - (h - 90) / 2;
+    g.roundRect(x, y, w, h, 6);
+    if (item) {
+      const c = item.kind === 'block' ? BLOCK_TYPE_TABLE[item.blockType].color : 0x5f8dd3;
+      g.fill({ color: ((Math.floor(((c >> 16) & 0xff) * 0.3)) << 16) | ((Math.floor(((c >> 8) & 0xff) * 0.3)) << 8) | Math.floor((c & 0xff) * 0.3), alpha: 0.9 });
+      g.stroke({ width: selected ? 4 : 2, color: selected ? 0xfff0aa : c });
+    } else {
+      g.fill({ color: 0xb9d6ba, alpha: 0.24 });
+      g.stroke({ width: 1, color: 0x6d8f78, alpha: 0.8 });
+    }
+    g.eventMode = 'static'; g.cursor = 'pointer';
+    g.on('pointerdown', onClick);
+    if (item) {
+      g.on('pointerover', () => this.showItemTooltip(item, sx + 40, sy + 45));
+      g.on('pointerout', () => this.tooltip.hide());
+    }
+    this.container.addChild(g);
+
+    if (item) {
+      const name = new Text({ text: item.label, style: { fontFamily: 'Arial', fontSize: selected ? 12 : 11, fill: 0xfff0cc, fontWeight: 'bold' } });
+      name.anchor.set(0.5); name.position.set(sx + 40, sy + 30); name.eventMode = 'none'; this.container.addChild(name);
+      if (item.tags.length > 0) {
+        const tag = new Text({ text: `【${item.tags[0]}】`, style: { fontFamily: 'Arial', fontSize: 9, fill: 0xaad7ff, fontWeight: 'bold' } });
+        tag.anchor.set(0.5); tag.position.set(sx + 40, sy + 48); tag.eventMode = 'none'; this.container.addChild(tag);
+      }
+      if (item.kind === 'block') {
+        const power = new Text({ text: `战力 ${item.combatPower}`, style: { fontFamily: 'Arial', fontSize: 10, fill: 0xffffff } });
+        power.anchor.set(0.5); power.position.set(sx + 40, sy + 60); power.eventMode = 'none'; this.container.addChild(power);
+      }
+      const cost = new Text({ text: `${item.cost}`, style: { fontFamily: 'Arial', fontSize: 14, fill: 0xb7f7a2, fontWeight: 'bold', stroke: { color: 0x1b2a1e, width: 3 } } });
+      cost.anchor.set(0.5); cost.position.set(sx + 40, sy + 76); cost.eventMode = 'none'; this.container.addChild(cost);
+    }
   }
 
-  hide(): void {
-    this.visible = false;
-    this.container.visible = false;
+  private startOfferGesture(item: ShopItem, offerIndex: number, event: any): void {
+    this.tooltip.hide();
+    this.onUiPointerActivity?.(event);
+    const canvas = this.renderer.app.canvas as HTMLCanvasElement;
+    let startedDrag = false;
+    let startClientX: number | null = null;
+    let startClientY: number | null = null;
+
+    const onMove = (e: PointerEvent) => {
+      this.onUiPointerActivity?.(e);
+      if (startClientX === null || startClientY === null) {
+        startClientX = e.clientX;
+        startClientY = e.clientY;
+      }
+      const dx = e.clientX - startClientX;
+      const dy = e.clientY - startClientY;
+      if (!startedDrag && Math.sqrt(dx * dx + dy * dy) > 8) {
+        startedDrag = true;
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        this.startDrag(item, offerIndex, e);
+      }
+    };
+
+    const onUp = (event: PointerEvent) => {
+      this.onUiPointerActivity?.(event);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      if (!startedDrag) this.onOfferSelected?.(offerIndex);
+    };
+
+    const initFromLastPointer = (e: PointerEvent) => {
+      startClientX = e.clientX;
+      startClientY = e.clientY;
+    };
+
+    initFromLastPointer(event as PointerEvent);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
   }
+
+  private startDrag(item: ShopItem, offerIndex: number, initialEvent?: PointerEvent): void {
+    this.dragging = { item, offerIndex };
+    const color = item.kind === 'block' ? BLOCK_TYPE_TABLE[item.blockType].color : 0x5f8dd3;
+    this.dragGraphics.clear();
+    this.dragGraphics.roundRect(0, 0, 80, 90, 6);
+    this.dragGraphics.fill({ color, alpha: 0.7 });
+    this.dragGraphics.stroke({ width: 2, color: 0xffffff });
+    this.dragGraphics.visible = false;
+    this.container.addChild(this.dragGraphics);
+
+    const canvas = this.renderer.app.canvas as HTMLCanvasElement;
+    const positionDrag = (e: PointerEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      const sx = this.renderer.screenW / rect.width;
+      const sy = this.renderer.screenH / rect.height;
+      const cx = (e.clientX - rect.left) * sx;
+      const cy = (e.clientY - rect.top) * sy;
+      this.dragGraphics.position.set(cx - 40, cy - 45);
+    };
+    if (initialEvent) {
+      this.dragGraphics.visible = true;
+      positionDrag(initialEvent);
+    }
+    const onMove = (e: PointerEvent) => {
+      this.onUiPointerActivity?.(e);
+      if (!this.dragging) return;
+      this.dragGraphics.visible = true;
+      positionDrag(e);
+    };
+    const onUp = (e: PointerEvent) => {
+      this.onUiPointerActivity?.(e);
+      this.dragGraphics.visible = false;
+      if (this.dragGraphics.parent) this.container.removeChild(this.dragGraphics);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      if (!this.dragging) return;
+
+      const rect = canvas.getBoundingClientRect();
+      const sx = this.renderer.screenW / rect.width;
+      const sy = this.renderer.screenH / rect.height;
+      const lx = (e.clientX - rect.left) * sx;
+      const ly = (e.clientY - rect.top) * sy;
+
+      const slotW = 80; const gap = 10;
+      const w = this.renderer.screenW;
+      const totalSlots = LOCKED_SLOT_COUNT + OFFER_SLOT_COUNT;
+      const totalW = totalSlots * slotW + (totalSlots - 1) * gap;
+      const startX = (w - totalW) / 2;
+      for (let i = 0; i < LOCKED_SLOT_COUNT; i++) {
+        const sx2 = startX + i * (slotW + gap);
+        if (lx >= sx2 && lx <= sx2 + slotW && ly >= 60 && ly <= 150) {
+          this.onOfferDropped?.(this.dragging.offerIndex, i);
+          break;
+        }
+      }
+      this.dragging = null;
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  }
+
+  isTooltipVisible(): boolean {
+    return this.tooltip.isVisible();
+  }
+
+  private showItemTooltip(item: ShopItem, x: number, y: number): void {
+    const descriptions = item.kind === 'block' ? [
+      `当前战力: ${item.combatPower}`,
+      ...getBlockEffectDescriptions(item.blockType, 1).map(line => `Lv1 ${line}`),
+      ...getBlockEffectDescriptions(item.blockType, 2).map(line => `Lv2 ${line}`),
+      ...getBlockEffectDescriptions(item.blockType, 3).map(line => `Lv3 ${line}`),
+    ] : getSpellDescriptions(item.spellType);
+    this.tooltip.show([
+      { text: `${item.label}  ${item.cost}战力` },
+      { text: item.kind === 'spell' ? '【法术】点击合法目标后释放' : '放置为 Lv1；同类叠加最高 Lv3', color: 0xb7f7a2, bold: true },
+      ...descriptions.slice(0, 7).map(text => ({ text: `- ${text}` })),
+    ], x, y);
+  }
+}
+
+function getSpellDescriptions(spellType: SpellType): string[] {
+  if (spellType === SpellType.FOCUS_FIELD) return ['指定友方，吸收左右相邻友方各一半战力'];
+  if (spellType === SpellType.SACRIFICE) return ['摧毁指定友方，随机升级另一个友方'];
+  if (spellType === SpellType.BULWARK) return ['所有友方【无法攻击】地块战力 +5'];
+  if (spellType === SpellType.SHIELD_CRUSH) return ['摧毁友方【无法攻击】地块，对同扇区龙造成等同战力伤害'];
+  return ['暂无说明'];
 }

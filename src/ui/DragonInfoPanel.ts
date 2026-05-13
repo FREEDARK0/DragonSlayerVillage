@@ -27,8 +27,8 @@ export class DragonInfoPanel {
     // Panel background
     const bg = new Graphics();
     bg.roundRect(0, 0, panelW, panelH, 8);
-    bg.fill({ color: 0x1a1a3e, alpha: 0.95 });
-    bg.stroke({ width: 1, color: 0x4466aa });
+    bg.fill({ color: 0x243748, alpha: 0.92 });
+    bg.stroke({ width: 1, color: 0xf4d084, alpha: 0.85 });
     this.container.addChild(bg);
 
     // Dragon name
@@ -41,9 +41,14 @@ export class DragonInfoPanel {
 
     // Personality
     const personalityNames: Record<string, string> = {
-      [DragonPersonalityType.ARROGANT]: '高傲 - 预告攻击位置',
+      [DragonPersonalityType.ARROGANT]: '高傲 - 侧翼强化',
       [DragonPersonalityType.GLUTTONOUS]: '贪食 - 优先吃食物',
-      [DragonPersonalityType.DESTRUCTIVE]: '破坏 - 造成足够伤害后离开',
+      [DragonPersonalityType.DESTRUCTIVE]: '破坏 - 击破后移动追击',
+      [DragonPersonalityType.GOLD]: '黄金 - 空位生成金矿',
+      [DragonPersonalityType.WYVERN]: '亚龙 - 受伤后离开',
+      [DragonPersonalityType.BRUTAL]: '暴虐 - 生成龙焰',
+      [DragonPersonalityType.SUN]: '太阳 - 耀光吐息',
+      [DragonPersonalityType.DARK]: '暗影 - 暗影吐息',
     };
     const persText = new Text({
       text: personalityNames[dragon.personality] || dragon.personality,
@@ -103,11 +108,29 @@ export class DragonInfoPanel {
     // Damage dealt (destructive)
     if (dragon.personality === DragonPersonalityType.DESTRUCTIVE) {
       const dmgText = new Text({
-        text: `已造成伤害: ${dragon.damageDealt}/${dragon.damageThreshold}`,
+        text: '少于3个地块时离开',
         style: { fontFamily: 'monospace', fontSize: 10, fill: 0xcc44cc },
       });
       dmgText.position.set(10, 98);
       this.container.addChild(dmgText);
+    }
+
+    if (dragon.personality === DragonPersonalityType.ARROGANT) {
+      const arrogantText = new Text({
+        text: `攻击倍率: x${dragon.attackMultiplier.toFixed(2)}`,
+        style: { fontFamily: 'monospace', fontSize: 10, fill: 0xffaaaa },
+      });
+      arrogantText.position.set(10, 98);
+      this.container.addChild(arrogantText);
+    }
+
+    if (dragon.personality === DragonPersonalityType.WYVERN) {
+      const hurtText = new Text({
+        text: dragon.hasTakenDamage ? '已受伤：回合后离开' : '尚未受伤',
+        style: { fontFamily: 'monospace', fontSize: 10, fill: 0x88dd88 },
+      });
+      hurtText.position.set(10, 98);
+      this.container.addChild(hurtText);
     }
   }
 

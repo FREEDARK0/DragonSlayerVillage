@@ -1,123 +1,150 @@
 import { DragonState, dragonTakeDamage } from '../models/Dragon';
 import { OctagonBoard } from '../core/OctagonBoard';
-import { DragonPersonalityType } from '../config/dragonTypes';
-import { DragonPersonality, TurnContext } from './personalities/DragonPersonality';
-import { ArrogantPersonality } from './personalities/Arrogant';
-import { GluttonousPersonality } from './personalities/Gluttonous';
-import { DestructivePersonality } from './personalities/Destructive';
-import { GoldPersonality } from './personalities/Gold';
-import { BrutalPersonality } from './personalities/Brutal';
 import { DragonActionType, DragonAction } from './actions/DragonAction';
 import { BreathAttack } from './actions/BreathAttack';
-import { BlockType, getVillageLevel } from '../config/blockTypes';
 import { EventBus } from '../core/EventBus';
-import { randInt } from '../utils/random';
+import { createEffectContext, EffectContext } from '../effects/EffectContext';
+import { applyBlockDestroyed, applyBreathHit } from '../effects/BlockEffectRegistry';
+import { getDragonBehavior } from '../effects/DragonBehaviorRegistry';
+import { GameState } from '../core/GameState';
+import { DragonPersonalityType } from '../config/dragonTypes';
+import { BlockType } from '../config/blockTypes';
+import { createDragonFire } from '../effects/BlockEffectRegistry';
 
 export interface DragonDecision {
   dragon: DragonState; actionType: DragonActionType;
   targetSectors: number[]; description: string;
 }
 
-function getBreathPower(dragon: DragonState): number {
-  switch (dragon.personality) {
-    case DragonPersonalityType.ARROGANT: return dragon.turnCounter % 2 === 0 ? 3 : 2;
-    case DragonPersonalityType.DESTRUCTIVE: return dragon.turnCounter % 2 === 0 ? 2 : 1;
-    default: return 1;
-  }
-}
-
 export class DragonAI {
-  private personalities = new Map<string, DragonPersonality>();
   private actions = new Map<DragonActionType, DragonAction>();
 
   constructor() {
-    this.personalities.set(DragonPersonalityType.ARROGANT, new ArrogantPersonality());
-    this.personalities.set(DragonPersonalityType.GLUTTONOUS, new GluttonousPersonality());
-    this.personalities.set(DragonPersonalityType.DESTRUCTIVE, new DestructivePersonality());
-    this.personalities.set(DragonPersonalityType.GOLD, new GoldPersonality());
-    this.personalities.set(DragonPersonalityType.BRUTAL, new BrutalPersonality());
     this.actions.set(DragonActionType.BREATH, new BreathAttack());
   }
 
-  executeTurn(dragons: DragonState[], board: OctagonBoard, rotationDeg: number = 0): DragonDecision[] {
+  executeTurn(state: GameState, rotationDeg: number = state.rotationAngle): DragonDecision[] {
+    const board = state.board;
+    const dragons = state.aliveDragons;
+    const ctx = createEffectContext(state);
     const decisions: DragonDecision[] = [];
     const rotSteps = Math.round(rotationDeg / 45);
 
     for (const dragon of dragons) {
       if (!dragon.isAlive) continue;
-      const personality = this.personalities.get(dragon.personality);
-      if (!personality) continue;
+      const behavior = getDragonBehavior(dragon.personality);
       const action = this.actions.get(DragonActionType.BREATH)!;
-      const logicalEdge = ((dragon.edgeIndex - rotSteps) % 8 + 8) % 8;
-      const power = getBreathPower(dragon);
-      const targetSectors = action.getAffectedSectors(logicalEdge, power);
-      const decision: DragonDecision = { dragon, actionType: DragonActionType.BREATH, targetSectors, description: personality.describe(dragon, DragonActionType.BREATH, targetSectors) };
-      decisions.push(decision);
-      this.executeDecision(decision, board);
+
+      let chainCount = 0;
+      while (dragon.isAlive && chainCount < 8) {
+        const logicalEdge = ((dragon.edgeIndex - rotSteps) % 8 + 8) % 8;
+        const power = behavior.breathPower(dragon);
+        const targetSectors = action.getAffectedSectors(logicalEdge, power);
+        const decision: DragonDecision = { dragon, actionType: DragonActionType.BREATH, targetSectors, description: behavior.describe(dragon, targetSectors) };
+        decisions.push(decision);
+
+        const destroyedBlock = this.executeDecision(decision, board, dragons, ctx);
+        if (dragon.personality !== DragonPersonalityType.DESTRUCTIVE || !destroyedBlock) break;
+
+        dragon.edgeIndex = (dragon.edgeIndex + 1) % 8;
+        chainCount++;
+      }
+
+      behavior.afterAction?.(dragon, ctx);
     }
     return decisions;
   }
 
-  private executeDecision(dec: DragonDecision, board: OctagonBoard): void {
+  private executeDecision(dec: DragonDecision, board: OctagonBoard, allDragons: DragonState[], ctx: EffectContext): boolean {
+    const behavior = getDragonBehavior(dec.dragon.personality);
     const baseDmg = Math.round(dec.dragon.combatPower * dec.dragon.attackMultiplier);
+    let destroyedBlock = false;
+    const centerSector = dec.targetSectors[Math.floor(dec.targetSectors.length / 2)];
 
     for (const s of dec.targetSectors) {
-      const block = board.getSector(s);
-
-      // 给扇形附属性（始终，空格也附）
-      board.setAttribute(s, dec.dragon.element);
-      if (block) block.attribute = dec.dragon.element;
+      const block = board.getSector(s) ?? this.moveSensingWallIntoEmptyHit(s, board);
 
       if (!block) {
         board.villagePower -= baseDmg;
+        behavior.onEmptySectorHit?.(dec.dragon, s, baseDmg, ctx);
         continue;
       }
 
-      if (block.cannotAttack) continue;
-      let totalDmg = baseDmg;
-      if (block.attribute === dec.dragon.element) {
-        totalDmg += Math.floor(block.power / 2);
+      const totalDmg = baseDmg;
+      if (dec.dragon.personality === DragonPersonalityType.BRUTAL && block.type === BlockType.DRAGON_FIRE) {
+        continue;
       }
+      const mode = dec.dragon.personality === DragonPersonalityType.ARROGANT && s !== centerSector ? 'increase' : 'damage';
+      applyBreathHit({ dragon: dec.dragon, sector: s, block, damage: totalDmg, allDragons, mode }, ctx);
 
-      block.value -= totalDmg;
-      dec.dragon.damageDealt += totalDmg;
+      if (mode === 'increase') {
+        block.combatPower += totalDmg;
+      } else {
+        const beforeDamage = block.combatPower;
+        block.combatPower -= totalDmg;
+        dec.dragon.damageDealt += totalDmg;
 
-      // 村庄反击 × 不适用（村庄不在扇区中）
-
-      if (block.value <= 0) {
-        const wasType = block.type;
-        board.removeBlock(s);
-        EventBus.emit('blockDestroyed', { sector: s, blockType: wasType, value: block.value });
-        if (dec.dragon.personality === DragonPersonalityType.GOLD) {
-          board.setSector(s, { id: -1, type: BlockType.POWER_STONE, value: randInt(3, 8), power: randInt(3, 8), shielded: false, attribute: dec.dragon.element, cooldown: 0, cannotAttack: false });
+        if (block.combatPower <= 0) {
+          const wasType = block.type;
+          board.removeBlock(s);
+          EventBus.emit('blockDestroyed', { sector: s, blockType: wasType, combatPower: block.combatPower });
+          applyBlockDestroyed(block, s, ctx, beforeDamage);
+          behavior.afterBlockDestroyed?.(dec.dragon, s, ctx);
+          destroyedBlock = true;
         }
-        if (dec.dragon.personality === DragonPersonalityType.BRUTAL) {
-          board.setSector(s, { id: -1, type: BlockType.WEAKNESS, value: 8, power: 0, shielded: false, attribute: dec.dragon.element, cooldown: 0, cannotAttack: false });
-        }
-      }
 
-      // 溢出伤村庄
-      if (block.value < 0) {
-        board.villagePower += block.value; // block.value is negative
+        if (block.combatPower < 0) {
+          board.villagePower += block.combatPower;
+        }
       }
     }
 
-    if (dec.dragon.personality === DragonPersonalityType.GLUTTONOUS) {
-      dec.dragon.satiation = Math.min(100, dec.dragon.satiation + 5);
+    if (dec.dragon.personality === DragonPersonalityType.BRUTAL) {
+      this.applyBrutalDragonFire(dec.targetSectors, board);
     }
 
     EventBus.emit('dragonAttacked', { dragonId: dec.dragon.id, sectors: dec.targetSectors, actionType: dec.actionType, edgeIndex: dec.dragon.edgeIndex });
+    return destroyedBlock;
   }
 
-  handlePostTurn(dragons: DragonState[], board: OctagonBoard, villagePower: number): void {
-    for (const d of dragons) {
-      if (!d.isAlive) continue;
-      if (d.personality === DragonPersonalityType.GOLD && board.findSector(b => b?.type === BlockType.POWER_STONE) === null) {
-        d.isAlive = false;
-      }
-      if (d.personality === DragonPersonalityType.BRUTAL && d.combatPower < d.maxCombatPower * 0.5) {
-        d.isAlive = false;
+  private moveSensingWallIntoEmptyHit(targetSector: number, board: OctagonBoard) {
+    const wallSectors = board.findAllSectors(block => block?.type === BlockType.SENSING_WALL);
+    if (wallSectors.length === 0) return null;
+    const sourceSector = wallSectors.sort((a, b) => {
+      const da = circularDistance(a, targetSector);
+      const db = circularDistance(b, targetSector);
+      return da === db ? a - b : da - db;
+    })[0];
+    const wall = board.getSector(sourceSector);
+    if (!wall) return null;
+    board.removeBlock(sourceSector);
+    board.setSector(targetSector, wall);
+    EventBus.emit('blockMoved', { from: sourceSector, to: targetSector, blockType: wall.type });
+    return wall;
+  }
+
+  private applyBrutalDragonFire(sectors: number[], board: OctagonBoard): void {
+    for (const sector of sectors) {
+      const block = board.getSector(sector);
+      if (!block) {
+        board.setSector(sector, createDragonFire(10));
+      } else if (block.type === BlockType.DRAGON_FIRE) {
+        block.combatPower += 10;
       }
     }
   }
+
+  handlePostTurn(state: GameState): void {
+    const ctx = createEffectContext(state);
+    for (const dragon of state.dragons) {
+      if (!dragon.isAlive) continue;
+      const behavior = getDragonBehavior(dragon.personality);
+      if (behavior.shouldLeaveAfterTurn?.(dragon, ctx)) dragon.isAlive = false;
+    }
+  }
+}
+
+function circularDistance(a: number, b: number): number {
+  const diff = Math.abs(a - b);
+  return Math.min(diff, 8 - diff);
 }

@@ -3,12 +3,13 @@ import { pixelToSector, sectorCenterOffset } from '../utils/SectorUtils';
 
 export enum RenderLayer {
   BACKGROUND = 0,
-  BOARD = 1,
-  BLOCKS = 2,
-  VISION_ARC = 3,
-  DRAGONS = 4,
-  UI = 5,
-  OVERLAY = 6,
+  NIGHT = 1,
+  BOARD = 2,
+  BLOCKS = 3,
+  VISION_ARC = 4,
+  DRAGONS = 5,
+  UI = 6,
+  OVERLAY = 7,
 }
 
 export class GameRenderer {
@@ -32,7 +33,7 @@ export class GameRenderer {
     await this.app.init({
       width: this.screenW,
       height: this.screenH,
-      background: 0x1a1a2e,
+      background: 0x88c8ee,
       antialias: true,
       resolution: window.devicePixelRatio || 1,
       autoDensity: true,
@@ -72,9 +73,24 @@ export class GameRenderer {
   private drawBackground(): void {
     const bg = this.getLayer(RenderLayer.BACKGROUND);
     const g = new Graphics();
-    for (let i = 8; i >= 1; i--) {
-      g.circle(this.screenW / 2, this.screenH / 2, Math.max(this.screenW, this.screenH) * (i / 8));
-      g.fill({ color: 0x334488, alpha: 0.03 * (9 - i) });
+    const bands = 14;
+    for (let i = 0; i < bands; i++) {
+      const t = i / (bands - 1);
+      const y = this.screenH * t;
+      const h = this.screenH / bands + 2;
+      const r = Math.floor(0x8e * (1 - t) + 0xd9 * t);
+      const green = Math.floor(0xc8 * (1 - t) + 0xee * t);
+      const b = Math.floor(0xef * (1 - t) + 0xff * t);
+      g.rect(0, y, this.screenW, h);
+      g.fill((r << 16) | (green << 8) | b);
+    }
+    for (let i = 0; i < 6; i++) {
+      const x = (this.screenW * (i + 0.7)) / 6;
+      const y = 90 + (i % 3) * 45;
+      g.ellipse(x, y, 80, 22);
+      g.fill({ color: 0xffffff, alpha: 0.22 });
+      g.ellipse(x + 45, y + 6, 64, 18);
+      g.fill({ color: 0xffffff, alpha: 0.16 });
     }
     bg.addChild(g);
   }
