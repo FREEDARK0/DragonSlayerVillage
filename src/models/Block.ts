@@ -15,6 +15,8 @@ export interface BlockData {
   cooldown: number;
   /** 风箱方向 1=CW, -1=CCW */
   direction?: number;
+  /** 铁匠铺相邻放置/升级加成，触发后成长 */
+  smithyPlacementBonus?: number;
 }
 
 let nextBlockId = 1;

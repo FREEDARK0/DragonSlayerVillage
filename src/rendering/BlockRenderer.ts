@@ -15,7 +15,7 @@ export class BlockRenderer {
     renderer.getLayer(3).addChild(this.container); // BLOCKS
   }
 
-  render(board: OctagonBoard, blockAnims?: Map<string, BlockAnimation>, rotationDeg: number = 0): void {
+  render(board: OctagonBoard, blockAnims?: Map<string, BlockAnimation>, rotationDeg: number = 0, powerAnims?: Map<string, BlockAnimation>): void {
     this.container.removeChildren();
     const R = this.renderer.octagonRadius;
     const cxOct = this.renderer.octagonCenterX;
@@ -48,6 +48,9 @@ export class BlockRenderer {
 
       // Value display
       if (block.combatPower > 0 && animAlpha > 0.3) {
+        const powerAnim = powerAnims?.get(`${i}`);
+        const powerScaleX = powerAnim?.scaleX ?? 1;
+        const powerScaleY = powerAnim?.scaleY ?? 1;
         const valR = R * 0.85;
         const valAngle = sectorAngle(i, rotationDeg);
         const wx = cxOct + Math.cos(valAngle) * valR;
@@ -58,6 +61,7 @@ export class BlockRenderer {
         });
         valText.anchor.set(0.5, 0.5);
         valText.position.set(wx - cx, wy - cy);
+        valText.scale.set(powerScaleX, powerScaleY);
         valText.rotation = 0;
         valText.label = `Value-${block.id}`;
         bc.addChild(valText);

@@ -63,25 +63,24 @@ export class Game {
     this.inputManager.onViewModeChanged((enabled) => this.applyViewMode(enabled));
     this.inputManager.onHoverSectorChanged((info) => this.updateBoardTooltip(info));
     this.shopPanel.onUiPointerActivity = (event) => this.inputManager.suppressCurrentGesture(event);
-    this.shopPanel.onOfferDropped = (offerIndex, lockedIndex) => {
+    this.shopPanel.onSectionItemDropped = (section, sourceIndex, lockedIndex) => {
       if (this.isViewMode) return;
-      this.shopSystem.moveOfferToLocked(offerIndex, lockedIndex);
+      this.shopSystem.moveSectionItemToLocked(section, sourceIndex, lockedIndex);
       this.drawShop();
       this.renderAll();
     };
-    this.shopPanel.onLockedSelected = (lockedIndex) => {
+    this.shopPanel.onSectionItemSelected = (section, index) => {
       if (this.isViewMode) return;
-      const result = this.shopSystem.beginPlacementFromLockedWithPower(lockedIndex, this.state.board.villagePower);
+      const result = this.shopSystem.beginPlacementFromSection(section, index, this.state.board.villagePower);
       const finalResult = this.resolveImmediateShopSelection(result);
       this.state.addMessage(finalResult.message);
       this.drawShop();
       this.renderAll();
     };
-    this.shopPanel.onOfferSelected = (offerIndex) => {
+    this.shopPanel.onSectionExpanded = (section) => {
       if (this.isViewMode) return;
-      const result = this.shopSystem.beginPlacementFromOffer(offerIndex, this.state.board.villagePower);
-      const finalResult = this.resolveImmediateShopSelection(result);
-      this.state.addMessage(finalResult.message);
+      const result = this.shopSystem.tryExpandSection(this.state, section);
+      this.state.addMessage(result.message);
       this.drawShop();
       this.renderAll();
     };
@@ -92,7 +91,7 @@ export class Game {
     this.startGame();
     const animate = () => {
       this.effectRenderer.update();
-      if (this.effectRenderer.blockAnims.size > 0) this.renderAll();
+      if (this.effectRenderer.hasActiveBoardAnimations()) this.renderAll();
       requestAnimationFrame(animate);
     };
     requestAnimationFrame(animate);
@@ -129,33 +128,46 @@ export class Game {
       this.inputManager.disable(this.renderer.app.canvas as HTMLCanvasElement);
       this.gameOverScreen.show(this.state.turnNumber, this.state.year, payload.reason, () => this.startGame());
     });
-    EventBus.on('dragonAttacked', (payload: { dragonId: string; sectors: number[]; actionType: string }) => {
+    EventBus.on('dragonAttackStarted', (payload: { dragonId: string; sectors: number[]; actionType: string }) => {
       if (payload.actionType === 'summon_imp') return;
-      const currentSession = this.sessionId;
       this.dragonRenderer.animateAttack(payload.dragonId);
-      this.effectRenderer.triggerScreenFlash(0xff4444, 12);
-      const sectors = payload.sectors;
-      const waveCount = sectors.length / 2;
-      for (let wave = 0; wave < waveCount; wave++) {
-        setTimeout(() => {
-          if (currentSession !== this.sessionId) return;
-          const mid = sectors.length / 2;
-          const left = sectors[mid - 1 - wave];
-          const right = sectors[mid + wave];
-          for (const s of [left, right]) {
-            if (s !== undefined) {
-              this.effectRenderer.startBounce(s);
-              this.effectRenderer.flashSector(s, this.state.rotationAngle);
-            }
-          }
-          this.renderAll();
-        }, wave * 600);
-      }
+      this.effectRenderer.triggerScreenFlash(0xff7744, 8);
+    });
+    EventBus.on('dragonBreathShockwave', (payload: { sectors: number[]; sourceSector?: number }) => {
+      const sourceSector = payload.sourceSector ?? payload.sectors[Math.floor(payload.sectors.length / 2)] ?? 0;
+      this.effectRenderer.showBreathShockwave(payload.sectors, sourceSector, this.state.rotationAngle);
+    });
+    EventBus.on('breathSectorHit', (payload: { sector: number; damage: number; targetType: 'block' | 'village'; mode: 'damage' | 'increase' }) => {
+      this.showBreathHitFeedback([payload]);
+    });
+    EventBus.on('breathSectorHitWave', (payload: { hits: { sector: number; damage: number; targetType: 'block' | 'village'; mode: 'damage' | 'increase' }[] }) => {
+      this.showBreathHitFeedback(payload.hits);
+    });
+    EventBus.on('dragonDamaged', (payload: { dragonId: string; damage: number }) => {
+      this.dragonRenderer.animateHit(payload.dragonId);
+      const pos = this.dragonRenderer.getDragonScreenPosition(payload.dragonId);
+      if (pos) this.effectRenderer.showFloatingTextAt(pos.x, pos.y - 20, `-${payload.damage}`, 0xfff0aa);
+    });
+    EventBus.on('dragonDeparting', (payload: { dragonId: string; name: string }) => {
+      const pos = this.dragonRenderer.getDragonScreenPosition(payload.dragonId);
+      if (pos) this.effectRenderer.showFloatingTextAt(pos.x, pos.y - 16, `${payload.name}离开`, 0xd8fbff);
+      this.dragonRenderer.animateDepart(payload.dragonId);
     });
     EventBus.on('blockDestroyed', (payload: { sector: number }) => {
       this.effectRenderer.startShrink(payload.sector);
       this.effectRenderer.showFloatingText(payload.sector, 'X', 0xff6666);
     });
+  }
+
+  private showBreathHitFeedback(hits: { sector: number; damage: number; targetType: 'block' | 'village'; mode: 'damage' | 'increase' }[]): void {
+    for (const payload of hits) {
+      const color = payload.mode === 'increase' ? 0x88ff88 : 0xfff0aa;
+      const prefix = payload.mode === 'increase' ? '+' : '-';
+      this.effectRenderer.flashSector(payload.sector, this.state.rotationAngle);
+      this.effectRenderer.showFloatingText(payload.sector, `${prefix}${payload.damage}`, color);
+      this.effectRenderer.startPowerBounce(payload.targetType === 'village' ? 'village' : payload.sector);
+    }
+    this.renderAll();
   }
 
   private enableInput(): void {
@@ -192,19 +204,25 @@ export class Game {
 
       if (this.state.turnState !== TurnState.WAITING_FOR_INPUT) return;
       this.inputManager.disable(canvas);
-      this.turnManager.executeTurn();
-      this.drawShop();
-      this.renderAll();
-      if (!this.state.gameOver) {
-        const currentSession = this.sessionId;
-        setTimeout(() => { if (!this.state.gameOver && currentSession === this.sessionId) { this.enableInput(); this.renderAll(); } }, 600);
-      }
+      void this.finishConfirmedTurn();
     });
   }
 
+  private async finishConfirmedTurn(): Promise<void> {
+    const currentSession = this.sessionId;
+    await this.turnManager.executeTurn();
+    if (currentSession !== this.sessionId) return;
+    this.drawShop();
+    this.renderAll();
+    if (!this.state.gameOver) {
+      this.enableInput();
+      this.renderAll();
+    }
+  }
+
   private renderAll(): void {
-    this.octagonRenderer.render(this.state.board, this.state.hero.heroSector, this.state.rotationAngle, this.state.nightStart, this.state.nightLength);
-    this.blockRenderer.render(this.state.board, this.effectRenderer.blockAnims, this.state.rotationAngle);
+    this.octagonRenderer.render(this.state.board, this.state.hero.heroSector, this.state.rotationAngle, this.state.nightStart, this.state.nightLength, this.effectRenderer.powerAnims.get('village'));
+    this.blockRenderer.render(this.state.board, this.effectRenderer.blockAnims, this.state.rotationAngle, this.effectRenderer.powerAnims);
     this.dragonRenderer.render(this.state.aliveDragons, this.state.rotationAngle, this.state.nightStart, this.state.nightLength);
     const villagePower = this.state.board.villagePower;
     const villageLevel = getVillageLevel(villagePower);
@@ -299,13 +317,21 @@ export class Game {
         screen: this.dragonRenderer.getDragonScreenPosition(dragon.id),
       })),
       shop: {
-        lockedSlots: this.shopSystem.state.lockedSlots.map(item => this.serializeShopItem(item)),
-        offerSlots: this.shopSystem.state.offerSlots.map(item => this.serializeShopItem(item)),
+        locked: this.shopSystem.state.locked.map(item => this.serializeShopItem(item)),
+        resource: this.shopSystem.state.resource.map(item => this.serializeShopItem(item)),
+        defense: this.shopSystem.state.defense.map(item => this.serializeShopItem(item)),
+        offense: this.shopSystem.state.offense.map(item => this.serializeShopItem(item)),
+        spell: this.shopSystem.state.spell.map(item => this.serializeShopItem(item)),
+        totalSlots: this.shopSystem.state.totalSlots,
+        maxTotalSlots: this.shopSystem.state.maxTotalSlots,
+        totalExpansions: this.shopSystem.state.totalExpansions,
+        nextExpansionCost: this.shopSystem.state.nextExpansionCost,
         selectedItem: this.shopSystem.selectedItem() ? {
           area: this.shopSystem.selectedItem()!.area,
           index: this.shopSystem.selectedItem()!.index,
           item: this.serializeShopItem(this.shopSystem.selectedItem()!.item),
         } : null,
+        layout: this.shopPanel.getLayoutSnapshot(),
       },
       screen: {
         w: this.renderer.screenW,

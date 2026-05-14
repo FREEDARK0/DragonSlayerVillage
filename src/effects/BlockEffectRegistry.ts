@@ -28,12 +28,28 @@ export interface DragonBreathHit {
   mode: 'damage' | 'increase';
 }
 
+export type BlockAttackSource = 'player_phase' | 'portal' | 'first_strike';
+
+export interface BlockDragonAttack {
+  block: BlockData;
+  sector: number;
+  target: DragonState;
+  ctx: EffectContext;
+  source: BlockAttackSource;
+}
+
+export interface BlockDragonAttackResult {
+  attacked: boolean;
+  damage: number;
+}
+
 export interface BlockEffectDefinition {
   type: BlockType;
   describe?(level?: number): string[];
   income?(block: BlockData, sector: number, ctx: IncomeEffectContext): number;
   onPlayerPhase?(block: BlockData, sector: number, ctx: EffectContext): void;
   onCooldown?(block: BlockData, sector: number, ctx: EffectContext): void;
+  attackDragon?(attack: BlockDragonAttack): BlockDragonAttackResult;
   modifyIncomingDamage?(hit: DragonBreathHit, ctx: EffectContext): number;
   onBreathHit?(hit: DragonBreathHit, ctx: EffectContext): void;
   onDestroyed?(block: BlockData, sector: number, ctx: EffectContext, destroyedCombatPower?: number): void;
@@ -76,6 +92,14 @@ export function applyBreathHit(hit: DragonBreathHit, ctx: EffectContext): void {
   getBlockEffect(hit.block.type)?.onBreathHit?.(hit, ctx);
 }
 
+export function attackDragonWithBlock(block: BlockData, sector: number, target: DragonState, ctx: EffectContext, source: BlockAttackSource): BlockDragonAttackResult {
+  return getBlockEffect(block.type)?.attackDragon?.({ block, sector, target, ctx, source }) ?? { attacked: false, damage: 0 };
+}
+
+export function canBlockAttackDragon(block: BlockData): boolean {
+  return Boolean(getBlockEffect(block.type)?.attackDragon);
+}
+
 export function modifyIncomingBlockDamage(hit: DragonBreathHit, ctx: EffectContext): number {
   return getBlockEffect(hit.block.type)?.modifyIncomingDamage?.(hit, ctx) ?? hit.damage;
 }
@@ -96,6 +120,12 @@ function damageDragon(dragon: DragonState, damage: number, ctx: EffectContext, m
   }
 }
 
+function attackMessage(source: BlockAttackSource, actor: string, target: DragonState, damage: number): string {
+  if (source === 'portal') return `通道触发，${actor}对 ${target.name} 造成 ${damage} 伤害`;
+  if (source === 'first_strike') return `${actor}先攻对 ${target.name} 造成 ${damage} 伤害`;
+  return `${actor}对 ${target.name} 造成 ${damage} 伤害`;
+}
+
 export function getBlockEffectDescriptions(type: BlockType, level: number = 1): string[] {
   return getBlockEffect(type)?.describe?.(level) ?? ['暂无主动效果', '可叠加同类地块提升等级'];
 }
@@ -114,9 +144,10 @@ export function combatPowerForLevel(type: BlockType, level: number): number {
   if (type === BlockType.WOOD_WALL) return levelValue(lv, [10, 25, 50]);
   if (type === BlockType.BALLISTA) return levelValue(lv, [5, 15, 30]);
   if (type === BlockType.MINE) return 10;
-  if (type === BlockType.SMITHY) return levelValue(lv, [10, 15, 20]);
+  if (type === BlockType.SMITHY) return levelValue(lv, [10, 20, 30]);
   if (type === BlockType.PRESSURE_STONE) return 0;
-  if (type === BlockType.ASSASSIN) return levelValue(lv, [9, 18, 27]);
+  if (type === BlockType.ASSASSIN) return 0;
+  if (type === BlockType.DRAGON_SPEAR) return 5;
   if (type === BlockType.SENSING_WALL) return 20;
   if (type === BlockType.DRAGON_FIRE) return 10;
   return defaultCombatPower(type);
@@ -132,9 +163,12 @@ export function refreshBlockForLevel(block: BlockData, level: number): void {
   block.level = lv;
   block.combatPower = block.type === BlockType.PRESSURE_STONE
     ? currentCombatPower
-    : combatPowerForLevel(block.type, lv);
+    : block.type === BlockType.DRAGON_SPEAR
+      ? Math.max(currentCombatPower, combatPowerForLevel(block.type, lv))
+      : combatPowerForLevel(block.type, lv);
   block.tags = [...(BLOCK_TYPE_TABLE[block.type].tags ?? [])];
   if (block.type === BlockType.BALLISTA) block.cooldown = 0;
+  if (block.type === BlockType.SMITHY && block.smithyPlacementBonus === undefined) block.smithyPlacementBonus = 1;
 }
 
 export function hasBlockTag(block: BlockData, tag: BlockTag): boolean {
@@ -199,14 +233,18 @@ registerBlockEffect({
     ];
   },
   onPlayerPhase(block, sector, ctx) {
+    for (const edgeIndex of [sector, (sector + 1) % 8]) {
+      const dragon = ctx.state.aliveDragons.find(d => d.edgeIndex === edgeIndex);
+      if (dragon) attackDragonWithBlock(block, sector, dragon, ctx, 'player_phase');
+    }
+  },
+  attackDragon({ block, sector, target, ctx, source }) {
     const left = ctx.board.getSector((sector - 1 + 8) % 8);
     const right = ctx.board.getSector((sector + 1) % 8);
     const baseDamage = block.combatPower + (left?.combatPower ?? 0) + (right?.combatPower ?? 0);
     const damage = Math.round(baseDamage * levelValue(blockLevel(block), [1, 1.5, 2]));
-    for (const edgeIndex of [sector, (sector + 1) % 8]) {
-      const dragon = ctx.state.aliveDragons.find(d => d.edgeIndex === edgeIndex);
-      if (dragon) damageDragon(dragon, damage, ctx, `法师对 ${dragon.name} 造成 ${damage} 伤害`);
-    }
+    damageDragon(target, damage, ctx, attackMessage(source, '法师', target, damage));
+    return { attacked: true, damage };
   },
 });
 
@@ -220,13 +258,17 @@ registerBlockEffect({
     ];
   },
   onPlayerPhase(block, sector, ctx) {
-    if (block.cooldown > 0) return;
-    const level = blockLevel(block);
-    const damage = block.combatPower * levelValue(level, [2, 3, 3]);
     const dragon = ctx.state.aliveDragons.find(d => d.edgeIndex === sector);
     if (!dragon) return;
-    damageDragon(dragon, damage, ctx, `巨弩对 ${dragon.name} 造成 ${damage} 伤害`);
+    attackDragonWithBlock(block, sector, dragon, ctx, 'player_phase');
+  },
+  attackDragon({ block, target, ctx, source }) {
+    if (block.cooldown > 0) return { attacked: false, damage: 0 };
+    const level = blockLevel(block);
+    const damage = block.combatPower * levelValue(level, [2, 3, 3]);
+    damageDragon(target, damage, ctx, attackMessage(source, '巨弩', target, damage));
     block.cooldown = levelValue(level, [2, 2, 1]);
+    return { attacked: true, damage };
   },
   onCooldown(block) {
     if (block.cooldown > 0) block.cooldown--;
@@ -248,18 +290,42 @@ registerBlockEffect({
   type: BlockType.ASSASSIN,
   describe(level = 1) {
     return [
-      `白天伤害: ${levelValue(level, [9, 18, 27])}`,
+      '白天战力: 0',
       `夜晚伤害: ${levelValue(level, [100, 150, 200])}`,
+      '带【先攻】标签',
       '触发后自毁',
     ];
   },
   onPlayerPhase(block, sector, ctx) {
-    const level = blockLevel(block);
-    const damage = ctx.isNight(sector) ? levelValue(level, [100, 150, 200]) : levelValue(level, [9, 18, 27]);
-    block.combatPower = damage;
     const dragon = ctx.state.aliveDragons.find(d => d.edgeIndex === sector);
-    if (dragon) damageDragon(dragon, damage, ctx, `刺客对 ${dragon.name} 造成 ${damage} 伤害！`);
+    if (dragon) attackDragonWithBlock(block, sector, dragon, ctx, 'player_phase');
+  },
+  attackDragon({ block, sector, target, ctx, source }) {
+    const damage = ctx.isNight(sector) ? levelValue(blockLevel(block), [100, 150, 200]) : 0;
+    block.combatPower = damage;
+    damageDragon(target, damage, ctx, attackMessage(source, '刺客', target, damage));
     destroyBlockInContext(block, sector, ctx, block.combatPower);
+    return { attacked: true, damage };
+  },
+});
+
+registerBlockEffect({
+  type: BlockType.DRAGON_SPEAR,
+  describe(level = 1) {
+    return [
+      '基础战力: 5',
+      `每个空位额外 +${levelValue(level, [10, 15, 20])} 战力`,
+      '带【先攻】标签',
+      '击杀任意龙时，跳过本轮剩余龙行动',
+    ];
+  },
+  attackDragon({ block, target, ctx, source }) {
+    const gainedPower = ctx.board.getEmptySectors().length * levelValue(blockLevel(block), [10, 15, 20]);
+    if (gainedPower > 0) block.combatPower += gainedPower;
+    const damage = block.combatPower;
+    damageDragon(target, damage, ctx, attackMessage(source, '龙枪', target, damage));
+    if (!target.isAlive) ctx.state.skipRemainingDragonActions = true;
+    return { attacked: true, damage };
   },
 });
 
@@ -284,24 +350,18 @@ registerBlockEffect({
 
 registerBlockEffect({
   type: BlockType.PORTAL,
-  describe(level = 1) {
+  describe() {
     return [
-      `转移伤害: ${levelValue(level, [100, 150, 200])}%`,
-      '被吐息命中时，把伤害转移给对侧龙',
+      '被吐息命中时，对侧可攻击友方反击攻击龙',
+      '自身仍会承受本次吐息伤害',
     ];
   },
   onBreathHit(hit, ctx) {
     if (hit.mode !== 'damage') return;
     const opposite = (hit.sector + 4) % 8;
-    const dragon = hit.allDragons.find(d => d.isAlive && d.edgeIndex === opposite);
-    if (!dragon) return;
-    const damage = Math.round(hit.damage * levelValue(blockLevel(hit.block), [1, 1.5, 2]));
-    dragonTakeDamage(dragon, damage);
-    ctx.events.emit('dragonDamaged', { dragonId: dragon.id, damage });
-    if (dragon.combatPower <= 0) {
-      markDragonDefeated(dragon, ctx.state.turnNumber + 6);
-      ctx.events.emit('dragonDied', { dragonId: dragon.id });
-    }
+    const ally = ctx.board.getSector(opposite);
+    if (!ally || !isFriendlyBlock(ally) || !canBlockAttackDragon(ally)) return;
+    attackDragonWithBlock(ally, opposite, hit.dragon, ctx, 'portal');
   },
 });
 
@@ -376,8 +436,9 @@ registerBlockEffect({
   type: BlockType.SMITHY,
   describe(level = 1) {
     return [
-      `每次减少加成: +${levelValue(level, [1, 2, 3])}`,
-      '上次战斗结束直到本回合结束前，村庄战力每减少1次，相邻扇区放置或升级的友方建筑/单位额外获得战力',
+      `战力: ${levelValue(level, [10, 20, 30])}`,
+      '相邻扇区放置或升级友方建筑/单位时，目标额外 +当前加成 战力',
+      '每次触发后，该铁匠铺当前加成 +1（初始 +1）',
     ];
   },
 });
@@ -389,6 +450,7 @@ registerBlockEffect({
 export function createPlacedBlock(type: BlockType, level: number = 1): BlockData {
   const block = createBlock(type, combatPowerForLevel(type, level), level);
   refreshBlockForLevel(block, level);
+  if (type === BlockType.SMITHY) block.smithyPlacementBonus = 1;
   return block;
 }
 

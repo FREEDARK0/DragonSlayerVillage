@@ -17,10 +17,12 @@ export enum BlockType {
   ASSASSIN = 'assassin',
   BELLOWS = 'bellows',
   SENSING_WALL = 'sensing_wall',
+  DRAGON_SPEAR = 'dragon_spear',
 }
 
 export enum BlockTag {
   UNABLE_TO_ATTACK = 'unable_to_attack',
+  FIRST_STRIKE = 'first_strike',
 }
 
 export enum SpellType {
@@ -54,9 +56,10 @@ export const BLOCK_TYPE_TABLE: Record<BlockType, BlockTypeDef> = {
   [BlockType.SPIKES]: { type: BlockType.SPIKES, label: '地刺', color: 0xaaaaaa, defaultPower: 10 },
   [BlockType.TAVERN]: { type: BlockType.TAVERN, label: '酒馆', color: 0xcc8844, defaultPower: 10, tags: [BlockTag.UNABLE_TO_ATTACK] },
   [BlockType.SMITHY]: { type: BlockType.SMITHY, label: '铁匠铺', color: 0xa86832, defaultPower: 10, tags: [BlockTag.UNABLE_TO_ATTACK] },
-  [BlockType.ASSASSIN]: { type: BlockType.ASSASSIN, label: '刺客', color: 0x333333, defaultPower: 9 },
+  [BlockType.ASSASSIN]: { type: BlockType.ASSASSIN, label: '刺客', color: 0x333333, defaultPower: 0, tags: [BlockTag.FIRST_STRIKE] },
   [BlockType.BELLOWS]: { type: BlockType.BELLOWS, label: '风箱', color: 0x7799aa, defaultPower: 5, tags: [BlockTag.UNABLE_TO_ATTACK] },
   [BlockType.SENSING_WALL]: { type: BlockType.SENSING_WALL, label: '感应石墙', color: 0x4aa6aa, defaultPower: 20, tags: [BlockTag.UNABLE_TO_ATTACK] },
+  [BlockType.DRAGON_SPEAR]: { type: BlockType.DRAGON_SPEAR, label: '龙枪', color: 0xb83c2e, defaultPower: 5, tags: [BlockTag.FIRST_STRIKE] },
 };
 
 /** 道具注册表（商店可用） */
@@ -81,6 +84,27 @@ export interface SpellShopItem extends BaseShopItem {
 
 export type ShopItem = BlockShopItem | SpellShopItem;
 
+export const SHOP_TAG_RESOURCE = '资源';
+export const SHOP_TAG_DEFENSE = '防御';
+export const SHOP_TAG_OFFENSE = '进攻';
+export const SHOP_TAG_SPELL = '法术';
+
+const BLOCK_SHOP_CATEGORY_TAGS: Partial<Record<BlockType, string[]>> = {
+  [BlockType.WOOD_WALL]: [SHOP_TAG_DEFENSE],
+  [BlockType.BALLISTA]: [SHOP_TAG_OFFENSE],
+  [BlockType.PRESSURE_STONE]: [SHOP_TAG_DEFENSE],
+  [BlockType.MINE]: [SHOP_TAG_RESOURCE],
+  [BlockType.GUARDIAN]: [SHOP_TAG_DEFENSE],
+  [BlockType.PORTAL]: [SHOP_TAG_DEFENSE, SHOP_TAG_OFFENSE],
+  [BlockType.SPIKES]: [SHOP_TAG_DEFENSE, SHOP_TAG_OFFENSE],
+  [BlockType.TAVERN]: [SHOP_TAG_RESOURCE],
+  [BlockType.SMITHY]: [SHOP_TAG_RESOURCE, SHOP_TAG_DEFENSE],
+  [BlockType.ASSASSIN]: [SHOP_TAG_OFFENSE],
+  [BlockType.BELLOWS]: [SHOP_TAG_DEFENSE],
+  [BlockType.SENSING_WALL]: [SHOP_TAG_DEFENSE],
+  [BlockType.DRAGON_SPEAR]: [SHOP_TAG_OFFENSE],
+};
+
 export const SHOP_ITEM_POOL: ShopItem[] = [
   blockItem(BlockType.WOOD_WALL, 5, 10),
   blockItem(BlockType.BALLISTA, 30, 5),
@@ -91,9 +115,10 @@ export const SHOP_ITEM_POOL: ShopItem[] = [
   blockItem(BlockType.SPIKES, 30, 10),
   blockItem(BlockType.TAVERN, 40, 10),
   blockItem(BlockType.SMITHY, 35, 10),
-  blockItem(BlockType.ASSASSIN, 35, 9),
+  blockItem(BlockType.ASSASSIN, 60, 0),
   blockItem(BlockType.BELLOWS, 25, 5),
   blockItem(BlockType.SENSING_WALL, 40, 20),
+  blockItem(BlockType.DRAGON_SPEAR, 60, 5),
   spellItem(SpellType.FOCUS_FIELD, '集中力场', 20),
   spellItem(SpellType.SACRIFICE, '献祭', 15),
   spellItem(SpellType.BULWARK, '壁垒', 30),
@@ -102,17 +127,22 @@ export const SHOP_ITEM_POOL: ShopItem[] = [
 
 function blockItem(blockType: BlockType, cost: number, combatPower: number): BlockShopItem {
   const def = BLOCK_TYPE_TABLE[blockType];
-  const tags = (def.tags ?? []).map(blockTagLabel);
+  const tags = dedupeTags([...(def.tags ?? []).map(blockTagLabel), ...(BLOCK_SHOP_CATEGORY_TAGS[blockType] ?? [])]);
   return { id: `block:${blockType}`, kind: 'block', label: def.label, cost, tags, blockType, combatPower };
 }
 
 function spellItem(spellType: SpellType, label: string, cost: number): SpellShopItem {
-  return { id: `spell:${spellType}`, kind: 'spell', label, cost, tags: ['法术'], spellType };
+  return { id: `spell:${spellType}`, kind: 'spell', label, cost, tags: [SHOP_TAG_SPELL], spellType };
 }
 
 export function blockTagLabel(tag: BlockTag): string {
   if (tag === BlockTag.UNABLE_TO_ATTACK) return '无法攻击';
+  if (tag === BlockTag.FIRST_STRIKE) return '先攻';
   return tag;
+}
+
+function dedupeTags(tags: string[]): string[] {
+  return [...new Set(tags)];
 }
 
 /** 村庄升级阈值 */

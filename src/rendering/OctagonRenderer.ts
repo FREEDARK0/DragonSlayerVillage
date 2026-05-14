@@ -6,6 +6,7 @@ import { SECTOR_COUNT } from '../utils/SectorUtils';
 import { sectorStartAngle, sectorEndAngle } from '../utils/SectorUtils';
 import { calculateVillageIncome } from '../effects/BlockEffectRegistry';
 import { IncomeEffectContext } from '../effects/EffectContext';
+import { BlockAnimation } from './EffectRenderer';
 
 export class OctagonRenderer {
   private container: Container;
@@ -21,7 +22,7 @@ export class OctagonRenderer {
     renderer.getLayer(1).addChild(this.wedgeContainer); // NIGHT layer
   }
 
-  render(board: OctagonBoard, heroSector?: number, rotationDeg: number = 0, nightStart?: number, nightLen?: number): void {
+  render(board: OctagonBoard, heroSector?: number, rotationDeg: number = 0, nightStart?: number, nightLen?: number, villagePowerAnim?: BlockAnimation): void {
     this.container.removeChildren();
     this.wedgeContainer.removeChildren();
     const g = new Graphics();
@@ -113,6 +114,7 @@ export class OctagonRenderer {
     const pText = new Text({ text: `${vp}`, style: { fontFamily: 'Arial', fontSize: 16, fill: 0xffffff, fontWeight: 'bold', stroke: { color: 0x000000, width: 3 } } });
     const gText = new Text({ text: `+${gain}`, style: { fontFamily: 'Arial', fontSize: 11, fill: 0x88ff88, stroke: { color: 0x000000, width: 2 } } });
     pText.anchor.set(0.5); pText.position.set(cx, cy + innerR * 0.5 - 4); this.container.addChild(pText);
+    pText.scale.set(villagePowerAnim?.scaleX ?? 1, villagePowerAnim?.scaleY ?? 1);
     gText.anchor.set(0, 0.5); gText.position.set(cx + innerR * 0.3, cy + innerR * 0.5 + 16); this.container.addChild(gText);
     const lvlText = new Text({ text: `Lv.${level}`, style: { fontFamily: 'Arial', fontSize: 10, fill: 0xddffdd, stroke: { color: 0x000000, width: 2 } } });
     lvlText.anchor.set(0.5); lvlText.position.set(cx, cy + innerR * 0.5 + 16); this.container.addChild(lvlText);

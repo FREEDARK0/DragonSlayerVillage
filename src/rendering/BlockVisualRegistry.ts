@@ -196,3 +196,15 @@ registerBlockVisual(BlockType.SENSING_WALL, (g, s) => {
   g.circle(0, 0, s * 0.08);
   g.fill(0xd8ffff);
 });
+
+registerBlockVisual(BlockType.DRAGON_SPEAR, (g, s) => {
+  g.roundRect(-s * 0.12, -s * 0.6, s * 0.24, s * 1.1, 2);
+  g.fill(0x6f3a1b);
+  g.stroke({ width: 1, color: 0xe5b275 });
+  g.poly([0, -s * 0.95, s * 0.26, -s * 0.45, 0, -s * 0.2, -s * 0.26, -s * 0.45]);
+  g.fill(0xd8d0c4);
+  g.stroke({ width: 1, color: 0xffffff });
+  g.poly([-s * 0.48, s * 0.2, 0, -s * 0.05, s * 0.48, s * 0.2, 0, s * 0.38]);
+  g.fill(0xb83c2e);
+  g.stroke({ width: 1, color: 0xffc3a0 });
+});

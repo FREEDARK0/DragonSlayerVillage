@@ -1,4 +1,14 @@
-import { BlockTag, BlockType, SHOP_ITEM_POOL, ShopItem, SpellType } from '../config/blockTypes';
+import {
+  BlockTag,
+  BlockType,
+  SHOP_ITEM_POOL,
+  SHOP_TAG_DEFENSE,
+  SHOP_TAG_OFFENSE,
+  SHOP_TAG_RESOURCE,
+  SHOP_TAG_SPELL,
+  ShopItem,
+  SpellType,
+} from '../config/blockTypes';
 import { GameState } from '../core/GameState';
 import {
   calculatePressureStoneCombatPower,
@@ -13,16 +23,52 @@ import { createEffectContext } from '../effects/EffectContext';
 import { dragonTakeDamage, markDragonDefeated } from '../models/Dragon';
 import { EventBus } from '../core/EventBus';
 
-export const LOCKED_SLOT_COUNT = 2;
-export const OFFER_SLOT_COUNT = 5;
+export type ShopSectionKey = 'locked' | 'resource' | 'defense' | 'offense' | 'spell';
+export type RefreshSectionKey = Exclude<ShopSectionKey, 'locked'>;
+
+export const SHOP_SECTION_ORDER: ShopSectionKey[] = ['locked', 'resource', 'defense', 'offense', 'spell'];
+export const SHOP_REFRESH_SECTION_ORDER: RefreshSectionKey[] = ['resource', 'defense', 'offense', 'spell'];
+export const SHOP_SECTION_LABELS: Record<ShopSectionKey, string> = {
+  locked: '锁定',
+  resource: '资源',
+  defense: '防御',
+  offense: '进攻',
+  spell: '法术',
+};
+
+export const SHOP_INITIAL_SECTION_SIZES: Record<ShopSectionKey, number> = {
+  locked: 1,
+  resource: 2,
+  defense: 2,
+  offense: 2,
+  spell: 1,
+};
+
+export const SHOP_EXPANSION_BASE_COST = 50;
+export const SHOP_EXPANSION_COST_STEP = 30;
+export const SHOP_TOTAL_SLOT_LIMIT = 15;
+
+const SECTION_TAGS: Record<RefreshSectionKey, string> = {
+  resource: SHOP_TAG_RESOURCE,
+  defense: SHOP_TAG_DEFENSE,
+  offense: SHOP_TAG_OFFENSE,
+  spell: SHOP_TAG_SPELL,
+};
 
 export interface ShopState {
-  lockedSlots: (ShopItem | null)[];
-  offerSlots: (ShopItem | null)[];
+  locked: (ShopItem | null)[];
+  resource: (ShopItem | null)[];
+  defense: (ShopItem | null)[];
+  offense: (ShopItem | null)[];
+  spell: (ShopItem | null)[];
+  totalExpansions: number;
+  totalSlots: number;
+  maxTotalSlots: number;
+  nextExpansionCost: number;
 }
 
 export interface ShopSelection {
-  area: 'locked' | 'offer';
+  area: ShopSectionKey;
   index: number;
   item: ShopItem;
 }
@@ -33,82 +79,43 @@ export interface PlacementResult {
 }
 
 export class ShopSystem {
-  readonly state: ShopState = {
-    lockedSlots: new Array(LOCKED_SLOT_COUNT).fill(null),
-    offerSlots: new Array(OFFER_SLOT_COUNT).fill(null),
-  };
+  readonly state: ShopState = this.createInitialState();
 
   private selection: ShopSelection | null = null;
 
   constructor() {
-    this.refreshOffers();
+    this.refillAllRefreshSections();
   }
 
   reset(): void {
-    this.state.lockedSlots = new Array(LOCKED_SLOT_COUNT).fill(null);
-    this.state.offerSlots = new Array(OFFER_SLOT_COUNT).fill(null);
+    const next = this.createInitialState();
+    this.state.locked = next.locked;
+    this.state.resource = next.resource;
+    this.state.defense = next.defense;
+    this.state.offense = next.offense;
+    this.state.spell = next.spell;
+    this.state.totalExpansions = 0;
+    this.state.totalSlots = totalSlotCount(this.state);
+    this.state.maxTotalSlots = SHOP_TOTAL_SLOT_LIMIT;
+    this.state.nextExpansionCost = SHOP_EXPANSION_BASE_COST;
     this.selection = null;
-    this.refreshOffers();
+    this.refillAllRefreshSections();
   }
 
-  refreshOffers(): void {
-    const used = new Set<string>();
-    for (const item of [...this.state.lockedSlots, ...this.state.offerSlots]) {
-      if (item) used.add(item.id);
-    }
-    const available = SHOP_ITEM_POOL.filter(item => !used.has(item.id));
-    const next: (ShopItem | null)[] = [];
-    for (let i = 0; i < OFFER_SLOT_COUNT && available.length > 0; i++) {
-      const index = Math.floor(Math.random() * available.length);
-      next.push(available.splice(index, 1)[0]);
-    }
-    while (next.length < OFFER_SLOT_COUNT) next.push(null);
-    this.state.offerSlots = next;
-  }
-
-  refillOfferSlot(index: number): void {
-    if (!this.isOfferIndex(index)) return;
-    const used = new Set<string>();
-    for (const item of [...this.state.lockedSlots, ...this.state.offerSlots]) {
-      if (item) used.add(item.id);
-    }
-    const available = SHOP_ITEM_POOL.filter(item => !used.has(item.id));
-    this.state.offerSlots[index] = available.length > 0
-      ? available[Math.floor(Math.random() * available.length)]
-      : null;
-  }
-
-  moveOfferToLocked(offerIndex: number, lockedIndex: number): boolean {
-    const offer = this.state.offerSlots[offerIndex];
-    if (!offer || !this.isOfferIndex(offerIndex) || !this.isLockedIndex(lockedIndex)) return false;
-    const locked = this.state.lockedSlots[lockedIndex];
-    this.state.lockedSlots[lockedIndex] = offer;
-    this.state.offerSlots[offerIndex] = locked;
-    return true;
-  }
-
-  beginPlacementFromOffer(offerIndex: number, villagePower: number): PlacementResult {
-    if (!this.isOfferIndex(offerIndex)) return { ok: false, message: '未选择建筑' };
-    const item = this.state.offerSlots[offerIndex];
+  beginPlacementFromSection(section: ShopSectionKey, index: number, villagePower: number): PlacementResult {
+    if (!this.isValidIndex(section, index)) return { ok: false, message: '未选择建筑' };
+    const item = this.getSection(section)[index];
     if (!item) return { ok: false, message: '未选择建筑' };
     if (villagePower < item.cost) {
       this.selection = null;
       return { ok: false, message: '战力不足' };
     }
-    this.selection = { area: 'offer', index: offerIndex, item };
+    this.selection = { area: section, index, item };
     return { ok: true, message: item.kind === 'spell' ? '选择法术目标' : '选择放置的扇区' };
   }
 
   beginPlacementFromLockedWithPower(lockedIndex: number, villagePower: number): PlacementResult {
-    if (!this.isLockedIndex(lockedIndex)) return { ok: false, message: '未选择建筑' };
-    const item = this.state.lockedSlots[lockedIndex];
-    if (!item) return { ok: false, message: '未选择建筑' };
-    if (villagePower < item.cost) {
-      this.selection = null;
-      return { ok: false, message: '战力不足' };
-    }
-    this.selection = { area: 'locked', index: lockedIndex, item };
-    return { ok: true, message: item.kind === 'spell' ? '选择法术目标' : '选择放置的扇区' };
+    return this.beginPlacementFromSection('locked', lockedIndex, villagePower);
   }
 
   selectedItem(): ShopSelection | null {
@@ -117,6 +124,39 @@ export class ShopSystem {
 
   cancelPlacement(): void {
     this.selection = null;
+  }
+
+  moveSectionItemToLocked(section: RefreshSectionKey, sourceIndex: number, lockedIndex: number): boolean {
+    if (!this.isValidIndex(section, sourceIndex) || !this.isValidIndex('locked', lockedIndex)) return false;
+    const sourceSlots = this.getSection(section);
+    const item = sourceSlots[sourceIndex];
+    if (!item) return false;
+    this.state.locked[lockedIndex] = item;
+    sourceSlots[sourceIndex] = null;
+    this.refillSectionSlot(section, sourceIndex);
+    return true;
+  }
+
+  tryExpandSection(gameState: GameState, section: ShopSectionKey): PlacementResult {
+    if (this.state.totalSlots >= SHOP_TOTAL_SLOT_LIMIT) return { ok: false, message: '商店已达到扩展上限' };
+    const cost = this.state.nextExpansionCost;
+    if (gameState.board.villagePower < cost) return { ok: false, message: '战力不足' };
+
+    this.getSection(section).push(null);
+    this.state.totalExpansions += 1;
+    this.updateStateMeta();
+    gameState.applyVillagePowerDelta(-cost, 'placement');
+
+    if (section !== 'locked') {
+      this.refillSectionSlot(section, this.getSection(section).length - 1);
+    }
+
+    return { ok: true, message: `${SHOP_SECTION_LABELS[section]}区扩展成功` };
+  }
+
+  canExpandSection(section: ShopSectionKey): boolean {
+    void section;
+    return this.state.totalSlots < SHOP_TOTAL_SLOT_LIMIT;
   }
 
   tryPlaceSelectedItem(gameState: GameState, sector: number | null): PlacementResult {
@@ -143,7 +183,6 @@ export class ShopSystem {
     if (item.kind !== 'block') return { ok: false, message: '未选择建筑' };
     if (sector === null) return { ok: false, message: '请选择棋盘格' };
     const existing = gameState.board.getSector(sector);
-    const smithyBonus = this.calculatePlacementSmithyBonus(gameState, sector);
     if (existing?.type === BlockType.DRAGON_FIRE) {
       existing.combatPower -= item.combatPower;
       if (existing.combatPower <= 0) gameState.board.removeBlock(sector);
@@ -151,14 +190,15 @@ export class ShopSystem {
     }
     if (existing && existing.type !== item.blockType) return { ok: false, message: '该格已有其他建筑' };
     if (existing && existing.level >= MAX_BLOCK_LEVEL) return { ok: false, message: '该建筑已满级' };
+    let target = existing;
     if (existing) {
       refreshBlockForLevel(existing, existing.level + 1);
-      existing.combatPower += smithyBonus;
     } else {
       const block = this.createPlacedBlockWithPlacementEffects(gameState, item.blockType, item.combatPower, sector);
-      block.combatPower += smithyBonus;
       gameState.board.setSector(sector, block);
+      target = block;
     }
+    if (target && isFriendlyBlock(target)) target.combatPower += this.applyPlacementSmithyBonus(gameState, sector);
     return { ok: true, message: existing ? `建筑已升级至 Lv.${existing.level}` : '建筑已放置' };
   }
 
@@ -233,8 +273,60 @@ export class ShopSystem {
   }
 
   private consumeSelection(selected: ShopSelection): void {
-    if (selected.area === 'offer') this.refillOfferSlot(selected.index);
+    if (selected.area !== 'locked') {
+      this.getSection(selected.area)[selected.index] = null;
+      this.refillSectionSlot(selected.area, selected.index);
+    }
     this.cancelPlacement();
+  }
+
+  private createInitialState(): ShopState {
+    return {
+      locked: new Array(SHOP_INITIAL_SECTION_SIZES.locked).fill(null),
+      resource: new Array(SHOP_INITIAL_SECTION_SIZES.resource).fill(null),
+      defense: new Array(SHOP_INITIAL_SECTION_SIZES.defense).fill(null),
+      offense: new Array(SHOP_INITIAL_SECTION_SIZES.offense).fill(null),
+      spell: new Array(SHOP_INITIAL_SECTION_SIZES.spell).fill(null),
+      totalExpansions: 0,
+      totalSlots: Object.values(SHOP_INITIAL_SECTION_SIZES).reduce((sum, count) => sum + count, 0),
+      maxTotalSlots: SHOP_TOTAL_SLOT_LIMIT,
+      nextExpansionCost: SHOP_EXPANSION_BASE_COST,
+    };
+  }
+
+  private refillAllRefreshSections(): void {
+    for (const section of SHOP_REFRESH_SECTION_ORDER) {
+      const slots = this.getSection(section);
+      for (let index = 0; index < slots.length; index++) {
+        if (slots[index] === null) this.refillSectionSlot(section, index);
+      }
+    }
+    this.updateStateMeta();
+  }
+
+  private refillSectionSlot(section: RefreshSectionKey, index: number): void {
+    const slots = this.getSection(section);
+    if (index < 0 || index >= slots.length) return;
+    const available = this.getAvailableItemsForSection(section);
+    slots[index] = available.length > 0
+      ? available[Math.floor(Math.random() * available.length)]
+      : null;
+    this.updateStateMeta();
+  }
+
+  private getAvailableItemsForSection(section: RefreshSectionKey): ShopItem[] {
+    const used = new Set<string>(this.getAllVisibleItems().map(item => item.id));
+    return SHOP_ITEM_POOL.filter(item => item.tags.includes(SECTION_TAGS[section]) && !used.has(item.id));
+  }
+
+  private getAllVisibleItems(): ShopItem[] {
+    const visible: ShopItem[] = [];
+    for (const section of SHOP_SECTION_ORDER) {
+      for (const item of this.getSection(section)) {
+        if (item) visible.push(item);
+      }
+    }
+    return visible;
   }
 
   private createPlacedBlockWithPlacementEffects(gameState: GameState, blockType: BlockType, combatPower: number, sector: number) {
@@ -247,29 +339,36 @@ export class ShopSystem {
     return block;
   }
 
-  private calculatePlacementSmithyBonus(gameState: GameState, sector: number): number {
-    const effectiveDecreaseEvents = gameState.villagePowerDecreaseEventsForPlacement + 1;
-    if (effectiveDecreaseEvents <= 0) return 0;
-    let perEventBonus = 0;
+  private applyPlacementSmithyBonus(gameState: GameState, sector: number): number {
+    let totalBonus = 0;
     for (const adjacent of [(sector + 7) % 8, (sector + 1) % 8]) {
       const block = gameState.board.getSector(adjacent);
       if (block?.type !== BlockType.SMITHY) continue;
-      perEventBonus += smithyLevelBonus(block.level ?? 1);
+      const currentBonus = block.smithyPlacementBonus ?? 1;
+      totalBonus += currentBonus;
+      block.smithyPlacementBonus = currentBonus + 1;
     }
-    return effectiveDecreaseEvents * perEventBonus;
+    return totalBonus;
   }
 
-  private isOfferIndex(index: number): boolean {
-    return index >= 0 && index < this.state.offerSlots.length;
+  private getSection(section: ShopSectionKey): (ShopItem | null)[] {
+    return this.state[section];
   }
 
-  private isLockedIndex(index: number): boolean {
-    return index >= 0 && index < this.state.lockedSlots.length;
+  private isValidIndex(section: ShopSectionKey, index: number): boolean {
+    return index >= 0 && index < this.getSection(section).length;
+  }
+
+  private updateStateMeta(): void {
+    this.state.totalSlots = totalSlotCount(this.state);
+    this.state.maxTotalSlots = SHOP_TOTAL_SLOT_LIMIT;
+    this.state.nextExpansionCost = SHOP_EXPANSION_BASE_COST + this.state.totalExpansions * SHOP_EXPANSION_COST_STEP;
   }
 }
 
-function smithyLevelBonus(level: number): number {
-  if (level >= 3) return 3;
-  if (level === 2) return 2;
-  return 1;
+function totalSlotCount(state: Pick<ShopState, ShopSectionKey>): number {
+  return SHOP_SECTION_ORDER.reduce((sum, section) => sum + state[section].length, 0);
 }
+
+// Keep a shared constant for imports that already expect it in config-like form.
+export { SHOP_TOTAL_SLOT_LIMIT as SHOP_MAX_TOTAL_SLOTS };

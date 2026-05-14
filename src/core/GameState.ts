@@ -25,6 +25,7 @@ export class GameState {
   year: number = 1;
   villagePowerDecreaseEventsInBattle: number = 0;
   villagePowerDecreaseEventsForPlacement: number = 0;
+  skipRemainingDragonActions: boolean = false;
 
   messages: string[] = [];
   gameOver: boolean = false;

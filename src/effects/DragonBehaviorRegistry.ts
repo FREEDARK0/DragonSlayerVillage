@@ -29,6 +29,10 @@ export function getAllDragonBehaviors(): DragonBehaviorDefinition[] {
   return [...definitions.values()];
 }
 
+export function dragonBehaviorHasExplicitLeaveCondition(type: DragonPersonalityType): boolean {
+  return definitions.get(type)?.shouldLeaveAfterTurn !== undefined;
+}
+
 const defaultBehavior: DragonBehaviorDefinition = {
   type: DragonPersonalityType.ARROGANT,
   breathPower() {
@@ -38,7 +42,7 @@ const defaultBehavior: DragonBehaviorDefinition = {
     return `${dragon.name}吐息！覆盖 ${targets.length} 个扇形`;
   },
   effectDescriptions() {
-    return ['标准吐息，攻击面前扇区'];
+    return ['标准吐息，攻击面前扇区', '所在区域变为黑夜时离开'];
   },
 };
 
@@ -58,6 +62,7 @@ registerDragonBehavior({
       `固定攻击 3 个扇区`,
       `中心正常伤害，两侧命中地块改为增加战力`,
       `攻击后攻击倍率 x1.1（当前 ${dragon.attackMultiplier.toFixed(2)}）`,
+      '所在区域变为黑夜时离开',
     ];
   },
 });
@@ -113,7 +118,7 @@ registerDragonBehavior({
     ctx.board.setSector(sector, createPowerStone());
   },
   effectDescriptions() {
-    return ['吐息命中的空位生成 1 级随机战力金矿', '空位仍会承受对村庄的吐息伤害'];
+    return ['吐息命中的空位生成 1 级随机战力金矿', '空位仍会承受对村庄的吐息伤害', '所在区域变为黑夜时离开'];
   },
 });
 
@@ -142,7 +147,7 @@ registerDragonBehavior({
     return `${dragon.name}喷吐残暴龙焰！`;
   },
   effectDescriptions() {
-    return ['攻击区域空位生成 10 战力龙焰', '已有龙焰会继续叠加 10 战力'];
+    return ['攻击区域空位生成 10 战力龙焰', '已有龙焰会继续叠加 10 战力', '所在区域变为黑夜时离开'];
   },
 });
 
@@ -155,7 +160,7 @@ registerDragonBehavior({
     return `${dragon.name}释放耀光吐息！覆盖 ${targets.length} 个扇形`;
   },
   effectDescriptions() {
-    return ['释放耀光吐息'];
+    return ['释放耀光吐息', '所在区域变为黑夜时离开'];
   },
 });
 
@@ -168,6 +173,6 @@ registerDragonBehavior({
     return `${dragon.name}释放暗影吐息！覆盖 ${targets.length} 个扇形`;
   },
   effectDescriptions() {
-    return ['释放暗影吐息'];
+    return ['释放暗影吐息', '所在区域变为黑夜时离开'];
   },
 });

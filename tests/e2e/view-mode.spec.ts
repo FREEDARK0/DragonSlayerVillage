@@ -1,13 +1,29 @@
 import { expect, test } from '@playwright/test';
 
+type SectionKey = 'locked' | 'resource' | 'defense' | 'offense' | 'spell';
+
+type SlotLayout = {
+  centerX: number;
+  centerY: number;
+};
+
 type Snapshot = {
   turnNumber: number;
   villagePower: number;
   board: ({ type: string; combatPower: number; level: number; tags: string[] } | null)[];
   shop: {
-    lockedSlots: (ShopSnapshotItem | null)[];
-    offerSlots: (ShopSnapshotItem | null)[];
-    selectedItem: { area: 'locked' | 'offer'; index: number; item: ShopSnapshotItem } | null;
+    locked: (ShopSnapshotItem | null)[];
+    resource: (ShopSnapshotItem | null)[];
+    defense: (ShopSnapshotItem | null)[];
+    offense: (ShopSnapshotItem | null)[];
+    spell: (ShopSnapshotItem | null)[];
+    selectedItem: { area: SectionKey; index: number; item: ShopSnapshotItem } | null;
+    layout: {
+      sections: Record<SectionKey, {
+        slots: SlotLayout[];
+        addButton: SlotLayout;
+      }>;
+    };
   };
   screen: {
     w: number;
@@ -43,25 +59,21 @@ type ShopSpellSnapshotItem = {
 
 type ShopSnapshotItem = ShopBlockSnapshotItem | ShopSpellSnapshotItem;
 
-const slotW = 80;
-const gap = 10;
-const shopY = 60;
-const lockedSlotCount = 2;
-const offerSlotCount = 5;
+const refreshSections: Exclude<SectionKey, 'locked'>[] = ['resource', 'defense', 'offense', 'spell'];
 
 async function snapshot(page: import('@playwright/test').Page): Promise<Snapshot> {
   await page.waitForFunction(() => Boolean((window as any).__dragonSlayerGame));
   return page.evaluate(() => (window as any).__dragonSlayerGame.getSnapshot());
 }
 
-function slotCenter(screenW: number, area: 'locked' | 'offer', index: number): { x: number; y: number } {
-  const totalSlots = lockedSlotCount + offerSlotCount;
-  const totalW = totalSlots * slotW + (totalSlots - 1) * gap;
-  const startX = (screenW - totalW) / 2;
-  const baseX = area === 'locked'
-    ? startX + index * (slotW + gap)
-    : startX + (lockedSlotCount + index) * (slotW + gap);
-  return { x: baseX + slotW / 2, y: shopY + 45 };
+function slotCenter(state: Snapshot, section: SectionKey, index: number): { x: number; y: number } {
+  const slot = state.shop.layout.sections[section].slots[index];
+  return { x: slot.centerX, y: slot.centerY };
+}
+
+function addButtonCenter(state: Snapshot, section: SectionKey): { x: number; y: number } {
+  const button = state.shop.layout.sections[section].addButton;
+  return { x: button.centerX, y: button.centerY };
 }
 
 function sectorPoint(state: Snapshot, sector: number): { x: number; y: number; sector: number } {
@@ -92,20 +104,26 @@ async function toggleViewMode(page: import('@playwright/test').Page, state?: Sna
   return snapshot(page);
 }
 
-async function findAffordableBlockOffer(page: import('@playwright/test').Page): Promise<{ state: Snapshot; offerIndex: number; item: ShopBlockSnapshotItem }> {
+async function findAffordableBlockRefreshItem(page: import('@playwright/test').Page): Promise<{ state: Snapshot; section: Exclude<SectionKey, 'locked'>; index: number; item: ShopBlockSnapshotItem }> {
   for (let attempt = 0; attempt < 12; attempt++) {
     const state = await snapshot(page);
-    const offerIndex = state.shop.offerSlots.findIndex(item => item?.kind === 'block' && item.cost <= state.villagePower);
-    if (offerIndex >= 0) return { state, offerIndex, item: state.shop.offerSlots[offerIndex] as ShopBlockSnapshotItem };
+    for (const section of refreshSections) {
+      const index = state.shop[section].findIndex(item => item?.kind === 'block' && item.cost <= state.villagePower);
+      if (index >= 0) return { state, section, index, item: state.shop[section][index] as ShopBlockSnapshotItem };
+    }
     await page.reload();
-    await expect.poll(async () => (await snapshot(page)).shop.offerSlots.filter(Boolean).length).toBeGreaterThan(0);
+    await expect.poll(async () => countVisibleRefreshItems(await snapshot(page))).toBeGreaterThan(0);
   }
   throw new Error('Could not find an affordable block offer after reloading');
 }
 
+function countVisibleRefreshItems(state: Snapshot): number {
+  return refreshSections.reduce((count, section) => count + state.shop[section].filter(Boolean).length, 0);
+}
+
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
-  await expect.poll(async () => (await snapshot(page)).shop.offerSlots.filter(Boolean).length).toBeGreaterThan(0);
+  await expect.poll(async () => countVisibleRefreshItems(await snapshot(page))).toBeGreaterThan(0);
 });
 
 test('right click toggles view mode and updates cursor', async ({ page }) => {
@@ -156,41 +174,43 @@ test('view mode shows board tooltips for occupied and empty sectors', async ({ p
   await expect.poll(async () => (await snapshot(page)).boardTooltipVisible).toBe(false);
 });
 
-test('view mode prevents shop selection, dragging, and spending', async ({ page }) => {
+test('view mode prevents shop selection, drag locking, and section expansion', async ({ page }) => {
   const before = await toggleViewMode(page);
-  const offerIndex = before.shop.offerSlots.findIndex(Boolean);
-  expect(offerIndex).toBeGreaterThanOrEqual(0);
-  const offer = before.shop.offerSlots[offerIndex];
-  const offerPos = slotCenter(before.screen.w, 'offer', offerIndex);
-  const lockedPos = slotCenter(before.screen.w, 'locked', 0);
+  const found = await findAffordableBlockRefreshItem(page);
+  const offer = found.item;
+  const offerPos = slotCenter(found.state, found.section, found.index);
+  const lockedPos = slotCenter(found.state, 'locked', 0);
+  const expandPos = addButtonCenter(found.state, 'resource');
 
   await page.mouse.click(offerPos.x, offerPos.y);
   await page.mouse.move(offerPos.x, offerPos.y);
   await page.mouse.down();
   await page.mouse.move(lockedPos.x, lockedPos.y, { steps: 8 });
   await page.mouse.up();
+  await page.mouse.click(expandPos.x, expandPos.y);
 
   const after = await snapshot(page);
   expect(after.viewMode).toBe(true);
   expect(after.shop.selectedItem).toBeNull();
-  expect(after.shop.offerSlots[offerIndex]).toEqual(offer);
-  expect(after.shop.lockedSlots[0]).toEqual(before.shop.lockedSlots[0]);
+  expect(after.shop.locked[0]).toEqual(before.shop.locked[0]);
+  expect(after.shop.resource.length).toBe(before.shop.resource.length);
+  expect(after.shop[found.section][found.index]).toEqual(offer);
   expect(after.villagePower).toBe(before.villagePower);
   expect(after.turnNumber).toBe(before.turnNumber);
 });
 
 test('right click is ignored while a shop item is selected', async ({ page }) => {
-  const affordable = await findAffordableBlockOffer(page);
-  const offerPos = slotCenter(affordable.state.screen.w, 'offer', affordable.offerIndex);
+  const affordable = await findAffordableBlockRefreshItem(page);
+  const offerPos = slotCenter(affordable.state, affordable.section, affordable.index);
 
   await page.mouse.click(offerPos.x, offerPos.y);
   const selected = await snapshot(page);
-  expect(selected.shop.selectedItem).toMatchObject({ area: 'offer', index: affordable.offerIndex, item: { id: affordable.item.id } });
+  expect(selected.shop.selectedItem).toMatchObject({ area: affordable.section, index: affordable.index, item: { id: affordable.item.id } });
 
   await page.mouse.click(selected.screen.octagonCenterX, selected.screen.octagonCenterY, { button: 'right' });
   const after = await snapshot(page);
   expect(after.viewMode).toBe(false);
-  expect(after.shop.selectedItem).toMatchObject({ area: 'offer', index: affordable.offerIndex, item: { id: affordable.item.id } });
+  expect(after.shop.selectedItem).toMatchObject({ area: affordable.section, index: affordable.index, item: { id: affordable.item.id } });
 });
 
 test('action mode resumes normal confirmation after leaving view mode', async ({ page }) => {

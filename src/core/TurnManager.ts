@@ -1,13 +1,14 @@
 import { GameState, TurnState } from './GameState';
 import { SpawnSystem } from '../systems/SpawnSystem';
 import { DragonAI } from '../ai/DragonAI';
-import { createDragon, resetDragonForSpawn, DragonState } from '../models/Dragon';
+import { createDragon, markDragonDeparted, resetDragonForSpawn, DragonState } from '../models/Dragon';
 import { getAvailableDragons } from '../config/dragonTypes';
 import { EventBus } from './EventBus';
 import { weightedPick } from '../utils/random';
 import { createEffectContext } from '../effects/EffectContext';
 import { calculateVillageIncome, getBlockEffect } from '../effects/BlockEffectRegistry';
 import { DragonTemplate } from '../config/dragonTypes';
+import { dragonBehaviorHasExplicitLeaveCondition } from '../effects/DragonBehaviorRegistry';
 
 function getMaxDragons(turn: number): number {
   if (turn <= 3) return 2;
@@ -29,9 +30,10 @@ export class TurnManager {
     this.prevVillagePower = 50;
   }
 
-  executeTurn(): void {
+  async executeTurn(): Promise<void> {
     this.state.turnState = TurnState.EXECUTING_TURN;
     this.state.beginBattleVillagePowerTracking();
+    this.state.skipRemainingDragonActions = false;
     const ctx = createEffectContext(this.state);
 
     const gain = calculateVillageIncome(ctx);
@@ -49,7 +51,7 @@ export class TurnManager {
 
     this.state.turnState = TurnState.ENEMY_TURN;
     EventBus.emit('enemyTurnStart', {});
-    const decisions = this.dragonAI.executeTurn(this.state);
+    const decisions = await this.dragonAI.executeTurn(this.state);
     for (const dec of decisions) this.state.addMessage(dec.description);
     this.dragonAI.handlePostTurn(this.state);
 
@@ -63,26 +65,15 @@ export class TurnManager {
     this.spawnDragonsByTurn();
     if (this.state.turnNumber > 0 && this.state.turnNumber % 30 === 0) this.state.year++;
 
-    // 黑夜伸缩：每次减/增 2 个扇区
-    if (!this.state.nightGrowing) {
-      this.state.nightStart = (this.state.nightStart + 2) % 8;
-      this.state.nightLength -= 2;
-      if (this.state.nightLength <= 0) {
-        this.state.nightGrowing = true;
-        this.state.nightStart = 4;
-        this.state.nightLength = 0;
-      }
-    } else {
-      this.state.nightLength += 2;
-      if (this.state.nightLength >= 8) {
-        this.state.nightGrowing = false;
-        this.state.nightStart = 4;
-        this.state.nightLength = 8;
-      }
-    }
+    const nextNight = this.previewNextNightState();
+    await this.handleDefaultNightDepartures(nextNight);
+    this.state.nightStart = nextNight.start;
+    this.state.nightLength = nextNight.length;
+    this.state.nightGrowing = nextNight.growing;
 
     for (const d of this.state.aliveDragons) d.turnCounter++;
     this.state.finalizeBattleVillagePowerTracking();
+    this.state.skipRemainingDragonActions = false;
     this.state.turnNumber++;
     this.state.turnRotationSteps = 0;
     this.state.turnState = TurnState.WAITING_FOR_INPUT;
@@ -134,6 +125,59 @@ export class TurnManager {
     this.state.dragons.push(dragon);
     return dragon;
   }
+
+  private previewNextNightState(): { start: number; length: number; growing: boolean } {
+    let start = this.state.nightStart;
+    let length = this.state.nightLength;
+    let growing = this.state.nightGrowing;
+
+    if (!growing) {
+      start = (start + 2) % 8;
+      length -= 2;
+      if (length <= 0) {
+        growing = true;
+        start = 4;
+        length = 0;
+      }
+    } else {
+      length += 2;
+      if (length >= 8) {
+        growing = false;
+        start = 4;
+        length = 8;
+      }
+    }
+
+    return { start, length, growing };
+  }
+
+  private async handleDefaultNightDepartures(nextNight: { start: number; length: number }): Promise<void> {
+    const departing = this.state.aliveDragons.filter(dragon => {
+      if (dragonBehaviorHasExplicitLeaveCondition(dragon.personality)) return false;
+      if (sectorInNight(dragon.edgeIndex, this.state.nightStart, this.state.nightLength)) return false;
+      return sectorInNight(dragon.edgeIndex, nextNight.start, nextNight.length);
+    });
+    if (departing.length === 0) return;
+
+    for (const dragon of departing) {
+      this.state.addMessage(`${dragon.name}离开`);
+      EventBus.emit('dragonDeparting', { dragonId: dragon.id, name: dragon.name });
+    }
+    await waitForTurnAnimation(260);
+    for (const dragon of departing) markDragonDeparted(dragon);
+  }
+}
+
+function sectorInNight(sector: number, start: number, length: number): boolean {
+  for (let i = 0; i < length; i++) {
+    if ((start + i) % 8 === sector) return true;
+  }
+  return false;
+}
+
+function waitForTurnAnimation(ms: number): Promise<void> {
+  if (typeof window === 'undefined') return Promise.resolve();
+  return new Promise(resolve => window.setTimeout(resolve, ms));
 }
 
 function buildRespawnPools(dragons: DragonState[], nextTurn: number): {

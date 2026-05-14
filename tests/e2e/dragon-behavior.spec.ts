@@ -1,16 +1,19 @@
 import { expect, test } from '@playwright/test';
-import { BLOCK_TYPE_TABLE, BlockType, SpellType } from '../../src/config/blockTypes';
+import { BLOCK_TYPE_TABLE, BlockTag, BlockType, SHOP_ITEM_POOL, SpellType } from '../../src/config/blockTypes';
 import { DRAGON_TEMPLATES, DragonPersonalityType, DragonTemplate } from '../../src/config/dragonTypes';
-import { DragonAI } from '../../src/ai/DragonAI';
+import { DragonAI, buildSymmetricSectorWaves } from '../../src/ai/DragonAI';
 import { GameState } from '../../src/core/GameState';
 import { TurnManager } from '../../src/core/TurnManager';
+import { EventBus } from '../../src/core/EventBus';
 import {
   calculateVillageIncome,
   destroyBlockInContext,
   getBlockEffectDescriptions,
+  refreshBlockForLevel,
 } from '../../src/effects/BlockEffectRegistry';
 import { createEffectContext } from '../../src/effects/EffectContext';
 import { getDragonBehavior } from '../../src/effects/DragonBehaviorRegistry';
+import { InputManager } from '../../src/input/InputManager';
 import { createBlock, createPowerStone } from '../../src/models/Block';
 import { createDragon, dragonTakeDamage, markDragonDefeated } from '../../src/models/Dragon';
 import { ShopSystem } from '../../src/systems/ShopSystem';
@@ -37,13 +40,13 @@ test('dragon templates expose copy limits and gold mine naming', () => {
   expect(BLOCK_TYPE_TABLE[BlockType.POWER_STONE].label).toBe('金矿');
 });
 
-test('aurus breath creates a level one gold mine on empty sectors and still damages the village', () => {
+test('aurus breath creates a level one gold mine on empty sectors and still damages the village', async () => {
   const state = new GameState();
   state.board.villagePower = 50;
   const aurus = createDragon(template('aurus'), 1, 0);
   state.dragons = [aurus];
 
-  const decisions = new DragonAI().executeTurn(state, 0);
+  const decisions = await new DragonAI().executeTurn(state, 0);
   const goldMine = state.board.getSector(0);
 
   expect(decisions).toHaveLength(1);
@@ -67,7 +70,7 @@ test('wyvern leaves after taking damage', () => {
   expect(wyvern.respawnAvailableTurn).toBeNull();
 });
 
-test('furo moves clockwise and continues attacking after breaking blocks, then leaves below three blocks', () => {
+test('furo moves clockwise and continues attacking after breaking blocks, then leaves below three blocks', async () => {
   const state = new GameState();
   state.board.villagePower = 100;
   state.board.setSector(0, createBlock(BlockType.WOOD_WALL, 1));
@@ -75,7 +78,7 @@ test('furo moves clockwise and continues attacking after breaking blocks, then l
   const furo = createDragon(template('furo'), 1, 0);
   state.dragons = [furo];
 
-  const decisions = new DragonAI().executeTurn(state, 0);
+  const decisions = await new DragonAI().executeTurn(state, 0);
 
   expect(decisions.length).toBeGreaterThanOrEqual(3);
   expect(decisions[0].targetSectors).toEqual([7, 0, 1]);
@@ -99,21 +102,74 @@ test('destructive dragon descriptions match its current alternating pursuit beha
   expect(descriptions.join('\n')).not.toContain('已造成');
 });
 
-test('sensing wall moves into an empty breath target and prevents empty-sector effects', () => {
+test('breath hit feedback advances from center in symmetric waves', async () => {
+  expect(buildSymmetricSectorWaves([7, 0, 1])).toEqual([[0], [7, 1]]);
+  expect(buildSymmetricSectorWaves([6, 7, 0, 1, 2])).toEqual([[0], [7, 1], [6, 2]]);
+
+  const state = new GameState();
+  state.board.villagePower = 100;
+  const ignis = createDragon(template('ignis'), 1, 0);
+  state.dragons = [ignis];
+  const events: string[] = [];
+  const onStart = () => events.push('dragonAttackStarted');
+  const onShockwave = () => events.push('dragonBreathShockwave');
+  const onWave = (payload: { hits: { sector: number }[] }) => events.push(`breathSectorHitWave:${payload.hits.map(hit => hit.sector).join(',')}`);
+
+  EventBus.on('dragonAttackStarted', onStart);
+  EventBus.on('dragonBreathShockwave', onShockwave);
+  EventBus.on('breathSectorHitWave', onWave);
+  try {
+    await new DragonAI().executeTurn(state, 0);
+  } finally {
+    EventBus.off('dragonAttackStarted', onStart);
+    EventBus.off('dragonBreathShockwave', onShockwave);
+    EventBus.off('breathSectorHitWave', onWave);
+  }
+
+  expect(events).toEqual([
+    'dragonAttackStarted',
+    'dragonBreathShockwave',
+    'breathSectorHitWave:0',
+    'breathSectorHitWave:7,1',
+  ]);
+});
+
+test('input manager requires a substantial drag before rotating the board', () => {
+  const manager = new InputManager() as any;
+  const rotations: number[] = [];
+  manager.onRotate((delta: number) => rotations.push(delta));
+  manager.enabled = true;
+  manager.centerX = 0;
+  manager.centerY = 0;
+  manager.octagonRadius = 1000;
+  manager.rotationDeg = 0;
+
+  manager.onPointerDown({ button: 0, clientX: 500, clientY: 0 });
+  manager.onPointerMove({ clientX: 495, clientY: 5 });
+  manager.onPointerMove({ clientX: 490, clientY: 10 });
+  manager.onPointerMove({ clientX: 485, clientY: 15 });
+
+  expect(rotations).toEqual([]);
+
+  manager.onPointerMove({ clientX: 0, clientY: 700 });
+  expect(rotations).toEqual([45]);
+});
+
+test('sensing wall moves into an empty breath target and prevents empty-sector effects', async () => {
   const state = new GameState();
   state.board.villagePower = 50;
   state.board.setSector(2, createBlock(BlockType.SENSING_WALL, 20));
   const aurus = createDragon(template('aurus'), 1, 0);
   state.dragons = [aurus];
 
-  new DragonAI().executeTurn(state, 0);
+  await new DragonAI().executeTurn(state, 0);
 
   expect(state.board.getSector(2)).toBeNull();
   expect(state.board.getSector(0)).toMatchObject({ type: BlockType.SENSING_WALL, combatPower: 15 });
   expect(state.board.villagePower).toBe(50);
 });
 
-test('arrogant dragon damages center, strengthens sides, and increases attack multiplier', () => {
+test('arrogant dragon damages center, strengthens sides, and increases attack multiplier', async () => {
   const state = new GameState();
   state.board.villagePower = 100;
   state.board.setSector(7, createBlock(BlockType.WOOD_WALL, 10));
@@ -122,7 +178,7 @@ test('arrogant dragon damages center, strengthens sides, and increases attack mu
   const ignis = createDragon(template('ignis'), 1, 0);
   state.dragons = [ignis];
 
-  new DragonAI().executeTurn(state, 0);
+  await new DragonAI().executeTurn(state, 0);
 
   expect(state.board.getSector(0)?.combatPower).toBe(4);
   expect(state.board.getSector(7)?.combatPower).toBe(16);
@@ -130,20 +186,20 @@ test('arrogant dragon damages center, strengthens sides, and increases attack mu
   expect(ignis.attackMultiplier).toBeCloseTo(0.33);
 });
 
-test('brutal dragon creates and stacks dragon fire after attacking', () => {
+test('brutal dragon creates and stacks dragon fire after attacking', async () => {
   const state = new GameState();
   state.board.villagePower = 100;
   const brutus = createDragon(template('brutus'), 1, 0);
   state.dragons = [brutus];
 
-  new DragonAI().executeTurn(state, 0);
+  await new DragonAI().executeTurn(state, 0);
   expect(state.board.getSector(0)).toMatchObject({ type: BlockType.DRAGON_FIRE, combatPower: 10 });
 
-  new DragonAI().executeTurn(state, 0);
+  await new DragonAI().executeTurn(state, 0);
   expect(state.board.getSector(0)).toMatchObject({ type: BlockType.DRAGON_FIRE, combatPower: 20 });
 });
 
-test('gluttonous dragon consumes a daytime dragon after attacking, gains its power, and moves to its edge', () => {
+test('gluttonous dragon consumes a daytime dragon after attacking, gains its power, and moves to its edge', async () => {
   const state = new GameState();
   state.board.villagePower = 100;
   state.nightStart = 4;
@@ -152,7 +208,7 @@ test('gluttonous dragon consumes a daytime dragon after attacking, gains its pow
   const ignis = createDragon(template('ignis'), 1, 2);
   state.dragons = [gulo, ignis];
 
-  const decisions = new DragonAI().executeTurn(state, 0);
+  const decisions = await new DragonAI().executeTurn(state, 0);
 
   expect(decisions).toHaveLength(1);
   expect(gulo.attackCount).toBe(1);
@@ -163,7 +219,7 @@ test('gluttonous dragon consumes a daytime dragon after attacking, gains its pow
   expect(ignis.respawnAvailableTurn).toBe(6);
 });
 
-test('gluttonous dragon ignores dragons in night and leaves after its second attack', () => {
+test('gluttonous dragon ignores dragons in night and leaves after its second attack', async () => {
   const state = new GameState();
   state.board.villagePower = 100;
   state.nightStart = 4;
@@ -172,13 +228,13 @@ test('gluttonous dragon ignores dragons in night and leaves after its second att
   const wyvern = createDragon(template('wyvern'), 1, 6);
   state.dragons = [gulo, wyvern];
 
-  new DragonAI().executeTurn(state, 0);
+  await new DragonAI().executeTurn(state, 0);
   expect(gulo.attackCount).toBe(1);
   expect(gulo.edgeIndex).toBe(0);
   expect(gulo.combatPower).toBe(20);
   expect(wyvern.isAlive).toBe(true);
 
-  new DragonAI().executeTurn(state, 0);
+  await new DragonAI().executeTurn(state, 0);
   new DragonAI().handlePostTurn(state);
 
   expect(gulo.attackCount).toBe(2);
@@ -266,7 +322,7 @@ test('pressure stone gains combat power once on placement and does not recalcula
   state.dragons[2].combatPower = 30;
   const shop = new ShopSystem();
 
-  shop.state.lockedSlots[0] = { id: 'block:pressure_stone', kind: 'block', label: '压力石', cost: 40, tags: ['无法攻击'], blockType: BlockType.PRESSURE_STONE, combatPower: 0 };
+  shop.state.locked[0] = { id: 'block:pressure_stone', kind: 'block', label: '压力石', cost: 40, tags: ['无法攻击'], blockType: BlockType.PRESSURE_STONE, combatPower: 0 };
   shop.beginPlacementFromLockedWithPower(0, state.board.villagePower);
   expect(shop.tryPlaceSelectedItem(state, 0).ok).toBe(true);
   expect(state.board.getSector(0)).toMatchObject({ type: BlockType.PRESSURE_STONE, level: 1, combatPower: 12 });
@@ -275,7 +331,7 @@ test('pressure stone gains combat power once on placement and does not recalcula
   state.dragons[1].combatPower = 100;
   state.dragons[2].combatPower = 100;
 
-  shop.state.lockedSlots[0] = { id: 'block:pressure_stone', kind: 'block', label: '压力石', cost: 40, tags: ['无法攻击'], blockType: BlockType.PRESSURE_STONE, combatPower: 0 };
+  shop.state.locked[0] = { id: 'block:pressure_stone', kind: 'block', label: '压力石', cost: 40, tags: ['无法攻击'], blockType: BlockType.PRESSURE_STONE, combatPower: 0 };
   shop.beginPlacementFromLockedWithPower(0, state.board.villagePower);
   expect(shop.tryPlaceSelectedItem(state, 0).ok).toBe(true);
   expect(state.board.getSector(0)).toMatchObject({ type: BlockType.PRESSURE_STONE, level: 2, combatPower: 12 });
@@ -293,7 +349,7 @@ test('gold mine reward uses generated combat power times level for any destructi
   expect(state.board.villagePower).toBe(76);
 });
 
-test('guardian gains power when any friendly block is destroyed and ignores incoming damage', () => {
+test('guardian gains power when any friendly block is destroyed and ignores incoming damage', async () => {
   const state = new GameState();
   state.board.villagePower = 100;
   const guardian = createBlock(BlockType.GUARDIAN, 5);
@@ -306,9 +362,99 @@ test('guardian gains power when any friendly block is destroyed and ignores inco
 
   const aurus = createDragon(template('aurus'), 1, 0);
   state.dragons = [aurus];
-  new DragonAI().executeTurn(state, 0);
+  await new DragonAI().executeTurn(state, 0);
 
   expect(state.board.getSector(0)?.combatPower).toBe(6);
+});
+
+test('portal keeps taking breath damage while the opposite attacker strikes the dragon', async () => {
+  const state = new GameState();
+  state.board.villagePower = 100;
+  state.board.setSector(0, createBlock(BlockType.PORTAL, 10));
+  state.board.setSector(4, createBlock(BlockType.MAGE, 8));
+  const ignis = createDragon(template('ignis'), 1, 0);
+  state.dragons = [ignis];
+
+  await new DragonAI().executeTurn(state, 0);
+
+  expect(state.board.getSector(0)).toMatchObject({ type: BlockType.PORTAL, combatPower: 4 });
+  expect(ignis.combatPower).toBe(12);
+});
+
+test('assassin shop item is first strike, costs sixty, and starts at zero combat power', () => {
+  const assassin = SHOP_ITEM_POOL.find(item => item.kind === 'block' && item.blockType === BlockType.ASSASSIN);
+  expect(assassin).toMatchObject({ cost: 60, combatPower: 0 });
+  expect(BLOCK_TYPE_TABLE[BlockType.ASSASSIN].defaultPower).toBe(0);
+  expect(BLOCK_TYPE_TABLE[BlockType.ASSASSIN].tags).toContain(BlockTag.FIRST_STRIKE);
+});
+
+test('dragon spear shop item is first strike offense, costs sixty, and starts at five combat power', () => {
+  const spear = SHOP_ITEM_POOL.find(item => item.kind === 'block' && item.blockType === BlockType.DRAGON_SPEAR);
+  expect(spear).toMatchObject({ cost: 60, combatPower: 5 });
+  expect(spear?.tags).toContain('进攻');
+  expect(BLOCK_TYPE_TABLE[BlockType.DRAGON_SPEAR].defaultPower).toBe(5);
+  expect(BLOCK_TYPE_TABLE[BlockType.DRAGON_SPEAR].tags).toContain(BlockTag.FIRST_STRIKE);
+});
+
+test('first strike assassin attacks before breath and cancels the breath when it kills the dragon', async () => {
+  const state = new GameState();
+  state.board.villagePower = 100;
+  state.nightStart = 0;
+  state.nightLength = 1;
+  state.board.setSector(0, createBlock(BlockType.ASSASSIN, 0, 1));
+  const ignis = createDragon(template('ignis'), 1, 0);
+  state.dragons = [ignis];
+
+  await new DragonAI().executeTurn(state, 0);
+
+  expect(ignis.isAlive).toBe(false);
+  expect(state.board.getSector(0)).toBeNull();
+  expect(state.board.villagePower).toBe(100);
+});
+
+test('dragon spear gains power from empty sectors before attacking and skips remaining dragons when it kills', async () => {
+  const state = new GameState();
+  state.board.villagePower = 100;
+  state.board.setSector(0, createBlock(BlockType.DRAGON_SPEAR, 5, 1));
+  const ignis = createDragon(template('ignis'), 1, 0);
+  const aurus = createDragon(template('aurus'), 1, 2);
+  state.dragons = [ignis, aurus];
+
+  const decisions = await new DragonAI().executeTurn(state, 0);
+
+  expect(decisions).toHaveLength(1);
+  expect(ignis.isAlive).toBe(false);
+  expect(aurus.isAlive).toBe(true);
+  expect(state.board.getSector(0)).toMatchObject({ type: BlockType.DRAGON_SPEAR, combatPower: 75, level: 1 });
+  expect(state.board.getSector(2)).toBeNull();
+  expect(state.board.villagePower).toBe(100);
+  expect(state.skipRemainingDragonActions).toBe(true);
+});
+
+test('dragon spear upgrade preserves existing combat power while increasing its empty-sector scaling level', () => {
+  const spear = createBlock(BlockType.DRAGON_SPEAR, 95, 1);
+
+  refreshBlockForLevel(spear, 2);
+  expect(spear).toMatchObject({ type: BlockType.DRAGON_SPEAR, level: 2, combatPower: 95 });
+
+  refreshBlockForLevel(spear, 3);
+  expect(spear).toMatchObject({ type: BlockType.DRAGON_SPEAR, level: 3, combatPower: 95 });
+});
+
+test('default dragons leave before the next night covers their edge, explicit leave dragons do not use this default', async () => {
+  const state = new GameState();
+  state.nightStart = 4;
+  state.nightLength = 0;
+  const ignis = createDragon(template('ignis'), 1, 4);
+  const wyvern = createDragon(template('wyvern'), 1, 5);
+  state.dragons = [ignis, wyvern];
+  const manager = new TurnManager(state);
+
+  await (manager as any).handleDefaultNightDepartures({ start: 4, length: 2 });
+
+  expect(ignis.isAlive).toBe(false);
+  expect(wyvern.isAlive).toBe(true);
+  expect(state.messages[0]).toBe('伊格尼斯离开');
 });
 
 test('tavern income is fixed in day and scales only in night', () => {
@@ -330,39 +476,45 @@ test('tavern income is fixed in day and scales only in night', () => {
   expect(calculateVillageIncome(createEffectContext(state))).toBe(40);
 });
 
-test('smithy bonus carries over battle decrease events and counts the current purchase itself', () => {
+test('smithy adjacent bonus starts at one and grows after each successful placement or upgrade', () => {
   const state = new GameState();
   state.board.villagePower = 200;
-  state.beginBattleVillagePowerTracking();
-  state.applyVillagePowerDelta(-3, 'battle');
-  state.applyVillagePowerDelta(-7, 'battle');
-  state.finalizeBattleVillagePowerTracking();
-  state.board.setSector(7, createBlock(BlockType.SMITHY, 15, 2));
+  const smithy = createBlock(BlockType.SMITHY, 10, 1);
+  state.board.setSector(7, smithy);
   const shop = new ShopSystem();
 
-  shop.state.lockedSlots[0] = { id: 'block:wood_wall', kind: 'block', label: '木墙', cost: 5, tags: ['无法攻击'], blockType: BlockType.WOOD_WALL, combatPower: 10 };
+  shop.state.locked[0] = { id: 'block:wood_wall', kind: 'block', label: '木墙', cost: 5, tags: ['无法攻击'], blockType: BlockType.WOOD_WALL, combatPower: 10 };
   shop.beginPlacementFromLockedWithPower(0, state.board.villagePower);
   expect(shop.tryPlaceSelectedItem(state, 0).ok).toBe(true);
+  expect(state.board.getSector(0)).toMatchObject({ type: BlockType.WOOD_WALL, combatPower: 11, level: 1 });
+  expect(smithy.smithyPlacementBonus).toBe(2);
 
-  expect(state.board.getSector(0)).toMatchObject({ type: BlockType.WOOD_WALL, combatPower: 16, level: 1 });
-  expect(state.villagePowerDecreaseEventsForPlacement).toBe(3);
+  shop.state.locked[0] = { id: 'block:wood_wall', kind: 'block', label: '木墙', cost: 5, tags: ['无法攻击'], blockType: BlockType.WOOD_WALL, combatPower: 10 };
+  shop.beginPlacementFromLockedWithPower(0, state.board.villagePower);
+  expect(shop.tryPlaceSelectedItem(state, 0).ok).toBe(true);
+  expect(state.board.getSector(0)).toMatchObject({ type: BlockType.WOOD_WALL, combatPower: 27, level: 2 });
+  expect(smithy.smithyPlacementBonus).toBe(3);
 });
 
-test('smithy bonus applies to same-type upgrades and multiple adjacent smithies stack', () => {
+test('multiple adjacent smithies stack and each grows independently', () => {
   const state = new GameState();
   state.board.villagePower = 200;
-  state.villagePowerDecreaseEventsForPlacement = 1;
-  state.board.setSector(7, createBlock(BlockType.SMITHY, 10, 1));
-  state.board.setSector(1, createBlock(BlockType.SMITHY, 20, 3));
+  const leftSmithy = createBlock(BlockType.SMITHY, 10, 1);
+  const rightSmithy = createBlock(BlockType.SMITHY, 30, 3);
+  leftSmithy.smithyPlacementBonus = 2;
+  rightSmithy.smithyPlacementBonus = 4;
+  state.board.setSector(7, leftSmithy);
+  state.board.setSector(1, rightSmithy);
   state.board.setSector(0, createBlock(BlockType.WOOD_WALL, 10, 1));
   const shop = new ShopSystem();
 
-  shop.state.lockedSlots[0] = { id: 'block:wood_wall', kind: 'block', label: '木墙', cost: 5, tags: ['无法攻击'], blockType: BlockType.WOOD_WALL, combatPower: 10 };
+  shop.state.locked[0] = { id: 'block:wood_wall', kind: 'block', label: '木墙', cost: 5, tags: ['无法攻击'], blockType: BlockType.WOOD_WALL, combatPower: 10 };
   shop.beginPlacementFromLockedWithPower(0, state.board.villagePower);
   expect(shop.tryPlaceSelectedItem(state, 0).ok).toBe(true);
 
-  expect(state.board.getSector(0)).toMatchObject({ type: BlockType.WOOD_WALL, level: 2, combatPower: 33 });
-  expect(state.villagePowerDecreaseEventsForPlacement).toBe(2);
+  expect(state.board.getSector(0)).toMatchObject({ type: BlockType.WOOD_WALL, level: 2, combatPower: 31 });
+  expect(leftSmithy.smithyPlacementBonus).toBe(3);
+  expect(rightSmithy.smithyPlacementBonus).toBe(5);
 });
 
 test('shop spells use friendly targets and dragon fire consumes block combat power', () => {
@@ -373,22 +525,70 @@ test('shop spells use friendly targets and dragon fire consumes block combat pow
   state.board.setSector(7, createBlock(BlockType.MAGE, 8));
   const shop = new ShopSystem();
 
-  shop.state.lockedSlots[0] = { id: 'spell:focus_field', kind: 'spell', label: '集中力场', cost: 40, tags: ['法术'], spellType: SpellType.FOCUS_FIELD };
+  shop.state.locked[0] = { id: 'spell:focus_field', kind: 'spell', label: '集中力场', cost: 40, tags: ['法术'], spellType: SpellType.FOCUS_FIELD };
   shop.beginPlacementFromLockedWithPower(0, state.board.villagePower);
   expect(shop.tryPlaceSelectedItem(state, 0).ok).toBe(true);
   expect(state.board.getSector(0)?.combatPower).toBe(18);
   expect(state.board.getSector(1)?.combatPower).toBe(5);
   expect(state.board.getSector(7)?.combatPower).toBe(4);
 
-  shop.state.lockedSlots[0] = { id: 'spell:bulwark', kind: 'spell', label: '壁垒', cost: 30, tags: ['法术'], spellType: SpellType.BULWARK };
+  shop.state.locked[0] = { id: 'spell:bulwark', kind: 'spell', label: '壁垒', cost: 30, tags: ['法术'], spellType: SpellType.BULWARK };
   shop.beginPlacementFromLockedWithPower(0, state.board.villagePower);
   expect(shop.tryPlaceSelectedItem(state, null).ok).toBe(true);
   expect(state.board.getSector(0)?.combatPower).toBe(23);
   expect(state.board.getSector(1)?.combatPower).toBe(5);
 
   state.board.setSector(2, createBlock(BlockType.DRAGON_FIRE, 12));
-  shop.state.lockedSlots[0] = { id: 'block:wood_wall', kind: 'block', label: '木墙', cost: 5, tags: ['无法攻击'], blockType: BlockType.WOOD_WALL, combatPower: 10 };
+  shop.state.locked[0] = { id: 'block:wood_wall', kind: 'block', label: '木墙', cost: 5, tags: ['无法攻击'], blockType: BlockType.WOOD_WALL, combatPower: 10 };
   shop.beginPlacementFromLockedWithPower(0, state.board.villagePower);
   expect(shop.tryPlaceSelectedItem(state, 2).ok).toBe(true);
   expect(state.board.getSector(2)).toMatchObject({ type: BlockType.DRAGON_FIRE, combatPower: 2 });
+});
+
+test('shop sections start partitioned, unique, and expandable with global cost growth', () => {
+  const shop = new ShopSystem();
+  const state = new GameState();
+  state.board.villagePower = 500;
+
+  expect(shop.state.locked).toHaveLength(1);
+  expect(shop.state.resource).toHaveLength(2);
+  expect(shop.state.defense).toHaveLength(2);
+  expect(shop.state.offense).toHaveLength(2);
+  expect(shop.state.spell).toHaveLength(1);
+
+  const visibleItems = [
+    ...shop.state.locked,
+    ...shop.state.resource,
+    ...shop.state.defense,
+    ...shop.state.offense,
+    ...shop.state.spell,
+  ].filter((item): item is NonNullable<typeof item> => item !== null);
+  expect(new Set(visibleItems.map(item => item.id)).size).toBe(visibleItems.length);
+  expect(shop.state.resource.every(item => item === null || item.tags.includes('资源'))).toBe(true);
+  expect(shop.state.defense.every(item => item === null || item.tags.includes('防御'))).toBe(true);
+  expect(shop.state.offense.every(item => item === null || item.tags.includes('进攻'))).toBe(true);
+  expect(shop.state.spell.every(item => item === null || item.tags.includes('法术'))).toBe(true);
+
+  expect(shop.tryExpandSection(state, 'resource')).toMatchObject({ ok: true });
+  expect(shop.state.resource).toHaveLength(3);
+  expect(shop.state.nextExpansionCost).toBe(80);
+  expect(state.board.villagePower).toBe(450);
+
+  expect(shop.tryExpandSection(state, 'locked')).toMatchObject({ ok: true });
+  expect(shop.state.locked).toHaveLength(2);
+  expect(shop.state.totalSlots).toBe(10);
+  expect(shop.state.nextExpansionCost).toBe(110);
+  expect(state.board.villagePower).toBe(370);
+});
+
+test('moving a refresh-section item to locked overwrites the target and refills its source section', () => {
+  const shop = new ShopSystem();
+  shop.state.locked[0] = { id: 'block:wood_wall', kind: 'block', label: '木墙', cost: 5, tags: ['无法攻击', '防御'], blockType: BlockType.WOOD_WALL, combatPower: 10 };
+  shop.state.resource[0] = { id: 'block:mine', kind: 'block', label: '矿厂', cost: 10, tags: ['无法攻击', '资源'], blockType: BlockType.MINE, combatPower: 10 };
+  shop.state.resource[1] = null;
+
+  expect(shop.moveSectionItemToLocked('resource', 0, 0)).toBe(true);
+  expect(shop.state.locked[0]?.id).toBe('block:mine');
+  expect(shop.state.resource[0]?.id).not.toBe('block:mine');
+  expect(shop.state.resource[0]?.tags).toContain('资源');
 });

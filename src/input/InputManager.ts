@@ -26,7 +26,7 @@ export class InputManager {
   private lastClientY = 0;
   private centerX = 0;
   private centerY = 0;
-  private dragThreshold = 450;
+  private dragThreshold = 650;
   private accumDist = 0;
   private gestureDist = 0;
   private currentSector: number | null = null;

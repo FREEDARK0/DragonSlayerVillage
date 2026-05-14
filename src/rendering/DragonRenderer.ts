@@ -94,6 +94,8 @@ export class DragonRenderer {
         this.dragonGraphics.set(dragon.id, dContainer);
       }
 
+      dContainer.visible = true;
+      dContainer.alpha = 1;
       dContainer.position.set(x, y);
       this.redrawDragon(dContainer, dragon);
     }
@@ -183,14 +185,10 @@ export class DragonRenderer {
     const logicalEdge = ((dragon.edgeIndex - rotSteps) % 8 + 8) % 8;
     const sectors = edgeBreathSectors(logicalEdge, power);
 
-    // Sort for outline drawing
-    const sorted = [...sectors].sort((a, b) => a - b);
-    const startA = sectorStartAngle(sorted[0], this.rotationDeg);
-    const endA = sectorEndAngle(sorted[sorted.length - 1], this.rotationDeg);
-
+    const startA = sectorStartAngle(sectors[0], this.rotationDeg);
     this.previewOutline.moveTo(cx, cy);
     this.previewOutline.lineTo(cx + Math.cos(startA) * R, cy + Math.sin(startA) * R);
-    for (const s of sorted) {
+    for (const s of sectors) {
       const a = sectorEndAngle(s, this.rotationDeg);
       this.previewOutline.lineTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R);
     }
@@ -300,6 +298,58 @@ export class DragonRenderer {
         dContainer.scale.set(s);
       } else {
         dContainer.scale.set(1);
+        this.renderer.app.ticker.remove(tick);
+      }
+    };
+    this.renderer.app.ticker.add(tick);
+  }
+
+  /** 龙受击：快速缩小回弹并闪白 */
+  animateHit(dragonId: string): void {
+    const dContainer = this.dragonGraphics.get(dragonId);
+    if (!dContainer || !dContainer.visible) return;
+
+    const flash = new Graphics();
+    flash.circle(0, 0, 58);
+    flash.fill({ color: 0xffffff, alpha: 0.78 });
+    flash.label = `DragonHitFlash-${dragonId}`;
+    dContainer.addChild(flash);
+
+    let frame = 0;
+    const duration = 18;
+    const tick = () => {
+      frame++;
+      const t = Math.min(frame / duration, 1);
+      const s = t < 0.38
+        ? 1 - 0.28 * Math.sin((t / 0.38) * Math.PI / 2)
+        : 0.72 + 0.28 * Math.sin(((t - 0.38) / 0.62) * Math.PI / 2) + Math.sin(t * Math.PI * 2) * 0.06 * (1 - t);
+      dContainer.scale.set(s);
+      flash.alpha = 0.78 * (1 - t);
+      if (frame >= duration) {
+        dContainer.scale.set(1);
+        if (flash.parent) dContainer.removeChild(flash);
+        this.renderer.app.ticker.remove(tick);
+      }
+    };
+    this.renderer.app.ticker.add(tick);
+  }
+
+  /** 龙离开：缩小淡出 */
+  animateDepart(dragonId: string): void {
+    const dContainer = this.dragonGraphics.get(dragonId);
+    if (!dContainer || !dContainer.visible) return;
+
+    let frame = 0;
+    const duration = 24;
+    const tick = () => {
+      frame++;
+      const t = Math.min(frame / duration, 1);
+      const s = Math.max(0, Math.pow(1 - t, 1.8));
+      dContainer.scale.set(s);
+      dContainer.alpha = 1 - t;
+      if (frame >= duration) {
+        dContainer.scale.set(0);
+        dContainer.alpha = 0;
         this.renderer.app.ticker.remove(tick);
       }
     };
