@@ -1,7 +1,6 @@
 import { GameState } from '../core/GameState';
 import { OctagonBoard } from '../core/OctagonBoard';
 import { EventBus } from '../core/EventBus';
-import { getVillageLevel } from '../config/blockTypes';
 
 export interface EventPort {
   emit(event: string, payload?: unknown): void;
@@ -18,11 +17,10 @@ export interface EffectContext {
   events: EventPort;
   random: RandomPort;
   isNight(sector: number): boolean;
-  villageLevel(): number;
   addMessage(message: string): void;
 }
 
-export type IncomeEffectContext = Pick<EffectContext, 'board' | 'isNight' | 'villageLevel'>;
+export type IncomeEffectContext = Pick<EffectContext, 'board' | 'isNight'>;
 
 export function createEffectContext(state: GameState): EffectContext {
   return {
@@ -42,9 +40,6 @@ export function createEffectContext(state: GameState): EffectContext {
         if ((state.nightStart + i) % 8 === sector) return true;
       }
       return false;
-    },
-    villageLevel() {
-      return getVillageLevel(state.board.villagePower);
     },
     addMessage(message: string) {
       state.addMessage(message);

@@ -1,12 +1,10 @@
 import { OctagonBoard } from '../core/OctagonBoard';
 import { DragonState, dragonIsDead } from '../models/Dragon';
-import { BlockType } from '../config/blockTypes';
 import { EventBus } from '../core/EventBus';
 
 export class WinLossSystem {
-  /** 检查村庄是否存活 */
   checkVillageAlive(board: OctagonBoard): boolean {
-    if (board.villagePower <= 0) {
+    if (board.villageHp <= 0) {
       EventBus.emit('gameOver', { reason: 'village_destroyed' });
       return false;
     }

@@ -5,13 +5,13 @@ export interface DragonState {
   templateId: string;
   name: string;
   personality: DragonPersonalityType;
-  combatPower: number;
-  maxCombatPower: number;
-  attackMultiplier: number;
+  hp: number;
+  maxHp: number;
+  attack: number;
+  breathRange: number;
   color: number;
   isAlive: boolean;
   turnCounter: number;
-  satiation: number;
   damageDealt: number;
   damageThreshold: number;
   announcedTargets: number[] | null;
@@ -24,25 +24,20 @@ export interface DragonState {
 
 let dragonInstanceId = 0;
 
-function scaledCombatPower(template: DragonTemplate, year: number): number {
-  const powerScale = 1 + (year - 1) * 0.15;
-  return Math.round(template.baseCombatPower * powerScale);
-}
-
-export function createDragon(template: DragonTemplate, year: number, edgeIndex: number): DragonState {
+export function createDragon(template: DragonTemplate, edgeIndex: number): DragonState {
   dragonInstanceId++;
   const dragon: DragonState = {
     id: `${template.id}_${dragonInstanceId}`,
     templateId: template.id,
     name: template.name,
     personality: template.personality,
-    combatPower: 0,
-    maxCombatPower: 0,
-    attackMultiplier: 0.3,
+    hp: 0,
+    maxHp: 0,
+    attack: 0,
+    breathRange: 1,
     color: template.color,
     isAlive: true,
     turnCounter: 0,
-    satiation: 0,
     damageDealt: 0,
     damageThreshold: 0,
     announcedTargets: null,
@@ -51,24 +46,23 @@ export function createDragon(template: DragonTemplate, year: number, edgeIndex: 
     respawnAvailableTurn: null,
     edgeIndex,
   };
-  resetDragonForSpawn(dragon, template, year, edgeIndex);
+  resetDragonForSpawn(dragon, template, edgeIndex);
   return dragon;
 }
 
-export function resetDragonForSpawn(dragon: DragonState, template: DragonTemplate, year: number, edgeIndex: number): void {
-  const combatPower = scaledCombatPower(template, year);
+export function resetDragonForSpawn(dragon: DragonState, template: DragonTemplate, edgeIndex: number): void {
   dragon.templateId = template.id;
   dragon.name = template.name;
   dragon.personality = template.personality;
-  dragon.combatPower = combatPower;
-  dragon.maxCombatPower = combatPower;
-  dragon.attackMultiplier = 0.3;
+  dragon.hp = template.hp;
+  dragon.maxHp = template.hp;
+  dragon.attack = template.attack;
+  dragon.breathRange = template.breathRange;
   dragon.color = template.color;
   dragon.isAlive = true;
   dragon.turnCounter = 0;
-  dragon.satiation = 0;
   dragon.damageDealt = 0;
-  dragon.damageThreshold = Math.round(combatPower * 0.4);
+  dragon.damageThreshold = Math.round(template.hp * 0.4);
   dragon.announcedTargets = null;
   dragon.hasTakenDamage = false;
   dragon.attackCount = 0;
@@ -77,7 +71,7 @@ export function resetDragonForSpawn(dragon: DragonState, template: DragonTemplat
 }
 
 export function markDragonDefeated(dragon: DragonState, respawnAvailableTurn: number): void {
-  dragon.combatPower = 0;
+  dragon.hp = 0;
   dragon.isAlive = false;
   dragon.announcedTargets = null;
   dragon.respawnAvailableTurn = respawnAvailableTurn;
@@ -90,16 +84,12 @@ export function markDragonDeparted(dragon: DragonState): void {
 }
 
 export function dragonTakeDamage(dragon: DragonState, amount: number): void {
-  if (amount > 0) dragon.hasTakenDamage = true;
-  dragon.combatPower = Math.max(0, dragon.combatPower - amount);
-  if (dragon.combatPower <= 0) dragon.isAlive = false;
+  if (amount <= 0 || !dragon.isAlive) return;
+  dragon.hasTakenDamage = true;
+  dragon.hp = Math.max(0, dragon.hp - amount);
+  if (dragon.hp <= 0) dragon.isAlive = false;
 }
 
 export function dragonIsDead(dragon: DragonState): boolean {
-  return !dragon.isAlive || dragon.combatPower <= 0;
-}
-
-export function dragonShouldLeave(dragon: DragonState, phase: string): boolean {
-  if (dragonIsDead(dragon)) return true;
-  return false; // no longer auto-leave by personality
+  return !dragon.isAlive || dragon.hp <= 0;
 }

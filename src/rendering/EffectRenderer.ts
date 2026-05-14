@@ -126,7 +126,7 @@ export class EffectRenderer {
   private flashGraphics: Graphics;
   /** 方块动画状态 map: "r,c" → animation */
   blockAnims: Map<string, BlockAnimation> = new Map();
-  /** 战力数字动画状态，扇区用 "0"-"7"，村庄用 "village" */
+  /** HP 数字动画状态，扇区用 "0"-"7"，村庄用 "village" */
   powerAnims: Map<string, BlockAnimation> = new Map();
 
   constructor(private renderer: GameRenderer) {
@@ -156,7 +156,7 @@ export class EffectRenderer {
     this.blockAnims.set(`${sector}`, { type: 'grow', progress: 0, duration: 22, scaleX: 0, scaleY: 0, alpha: 1 });
   }
 
-  /** 战力数字快速放大并回弹 */
+  /** HP 数字快速放大并回弹 */
   startPowerBounce(target: number | 'village'): void {
     this.powerAnims.set(`${target}`, { type: 'pop', progress: 0, duration: 16, scaleX: 1, scaleY: 1, alpha: 1 });
   }

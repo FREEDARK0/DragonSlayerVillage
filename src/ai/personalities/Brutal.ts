@@ -13,6 +13,6 @@ export class BrutalPersonality implements DragonPersonality {
   shouldAnnounce(): boolean { return false; }
 
   describe(dragon: DragonState, _actionType: DragonActionType, _targets: number[]): string {
-    return `${dragon.name}喷吐残暴龙焰！(HP: ${dragon.combatPower}/${dragon.maxCombatPower})`;
+    return `${dragon.name}喷吐龙焰！(HP: ${dragon.hp}/${dragon.maxHp})`;
   }
 }

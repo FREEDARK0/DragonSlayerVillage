@@ -53,6 +53,26 @@ registerBlockVisual(BlockType.VOODOO, (g, s, block) => {
   g.fill(0x000000);
 });
 
+registerBlockVisual(BlockType.WIZARD, (g, s) => {
+  g.circle(0, -s * 0.25, s * 0.32);
+  g.fill(0x6b4bc2);
+  g.stroke({ width: 1, color: 0xb5a2ff });
+  g.poly([-s * 0.4, s * 0.65, s * 0.4, s * 0.65, 0, -s * 0.1]);
+  g.fill(0x3f2e7c);
+  g.roundRect(-s * 0.45, -s * 0.05, s * 0.9, s * 0.06, 2);
+  g.fill(0xd8c8ff);
+});
+
+registerBlockVisual(BlockType.INFANTRY, (g, s) => {
+  g.roundRect(-s * 0.35, -s * 0.45, s * 0.7, s * 0.9, 4);
+  g.fill(0x4f8c5a);
+  g.stroke({ width: 1, color: 0x244d2b });
+  g.circle(0, -s * 0.62, s * 0.22);
+  g.fill(0xd8c0a0);
+  g.roundRect(s * 0.32, -s * 0.35, s * 0.06, s * 0.75, 1);
+  g.fill(0xd8d8d8);
+});
+
 registerBlockVisual(BlockType.POWER_STONE, (g, s) => {
   g.poly([0, -s * 0.75, s * 0.5, 0, 0, s * 0.75, -s * 0.5, 0]);
   g.fill(0xffaa00); g.stroke({ width: 1, color: 0xcc8800 });

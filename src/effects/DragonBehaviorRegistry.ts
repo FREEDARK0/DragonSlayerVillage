@@ -1,7 +1,6 @@
-import { BlockType } from '../config/blockTypes';
 import { DragonPersonalityType } from '../config/dragonTypes';
 import { DragonState } from '../models/Dragon';
-import { createPowerStone } from '../models/Block';
+import { createGoldMine } from './BlockEffectRegistry';
 import { EffectContext } from './EffectContext';
 
 export interface DragonBehaviorDefinition {
@@ -34,50 +33,49 @@ export function dragonBehaviorHasExplicitLeaveCondition(type: DragonPersonalityT
 }
 
 const defaultBehavior: DragonBehaviorDefinition = {
-  type: DragonPersonalityType.ARROGANT,
-  breathPower() {
-    return 1;
+  type: DragonPersonalityType.WYVERN,
+  breathPower(dragon) {
+    return breathPowerFromSectorRange(dragon.breathRange);
   },
   describe(dragon, targets) {
-    return `${dragon.name}吐息！覆盖 ${targets.length} 个扇形`;
+    return `${dragon.name}吐息！覆盖 ${targets.length} 个扇区`;
   },
   effectDescriptions() {
-    return ['标准吐息，攻击面前扇区', '所在区域变为黑夜时离开'];
+    return ['标准吐息，按攻击力造成伤害'];
   },
 };
 
 registerDragonBehavior({
   type: DragonPersonalityType.ARROGANT,
-  breathPower() {
-    return 2;
+  breathPower(dragon) {
+    return breathPowerFromSectorRange(dragon.breathRange);
   },
   describe(dragon, targets) {
-    return `${dragon.name}高傲吐息！中心伤害，两侧转为强化`;
+    return `${dragon.name}高傲吐息！覆盖 ${targets.length} 个扇区`;
   },
   afterAction(dragon) {
-    dragon.attackMultiplier *= 1.1;
+    dragon.attack += 5;
   },
   effectDescriptions(dragon) {
     return [
-      `固定攻击 3 个扇区`,
-      `中心正常伤害，两侧命中地块改为增加战力`,
-      `攻击后攻击倍率 x1.1（当前 ${dragon.attackMultiplier.toFixed(2)}）`,
-      '所在区域变为黑夜时离开',
+      '只会出现在攻击力最高友方所在扇区附近',
+      '击破任意建筑/单位时会重新选择攻击力最高的目标',
+      `每次攻击后 +5 攻击力（当前 ${dragon.attack}）`,
     ];
   },
 });
 
 registerDragonBehavior({
   type: DragonPersonalityType.GLUTTONOUS,
-  breathPower() {
-    return 1;
+  breathPower(dragon) {
+    return breathPowerFromSectorRange(dragon.breathRange);
   },
   describe(dragon) {
     return `${dragon.name}贪食吐息！`;
   },
   effectDescriptions(dragon) {
     return [
-      '攻击后吞噬白天区域的其他龙，获得其当前战力并移动到其位置',
+      '攻击后吞噬最近的白天区域其他龙，获得其 HP 和攻击力',
       `攻击 2 次后离开（已攻击 ${dragon.attackCount}/2）`,
     ];
   },
@@ -89,46 +87,42 @@ registerDragonBehavior({
 registerDragonBehavior({
   type: DragonPersonalityType.DESTRUCTIVE,
   breathPower(dragon) {
-    return dragon.turnCounter % 2 === 0 ? 2 : 1;
+    return breathPowerFromSectorRange(dragon.breathRange);
   },
   describe(dragon) {
     return `${dragon.name}破坏吐息！`;
   },
   effectDescriptions() {
     return [
-      '吐息范围在 1 扇区与 3 扇区之间交替变化',
-      '击破地块后顺时针移动并继续攻击',
-      '场上地块少于 3 个时离开',
+      '固定攻击 3 个扇区',
+      '击破地块后顺时针移动 1 边并继续攻击',
     ];
-  },
-  shouldLeaveAfterTurn(_dragon, ctx) {
-    return ctx.board.findAllSectors(block => block !== null).length < 3;
   },
 });
 
 registerDragonBehavior({
   type: DragonPersonalityType.GOLD,
-  breathPower() {
-    return 1;
+  breathPower(dragon) {
+    return breathPowerFromSectorRange(dragon.breathRange);
   },
   describe(dragon) {
     return `${dragon.name}洒下金色吐息！`;
   },
   onEmptySectorHit(_dragon, sector, _damage, ctx) {
-    ctx.board.setSector(sector, createPowerStone());
+    if (!ctx.board.getSector(sector)) ctx.board.setSector(sector, createGoldMine());
   },
   effectDescriptions() {
-    return ['吐息命中的空位生成 1 级随机战力金矿', '空位仍会承受对村庄的吐息伤害', '所在区域变为黑夜时离开'];
+    return ['吐息命中空地并造成伤害后，该空地生成 1 个金矿'];
   },
 });
 
 registerDragonBehavior({
   type: DragonPersonalityType.WYVERN,
-  breathPower() {
-    return 1;
+  breathPower(dragon) {
+    return breathPowerFromSectorRange(dragon.breathRange);
   },
   describe(dragon, targets) {
-    return `${dragon.name}俯冲吐息！覆盖 ${targets.length} 个扇形`;
+    return `${dragon.name}俯冲吐息！覆盖 ${targets.length} 个扇区`;
   },
   shouldLeaveAfterTurn(dragon) {
     return dragon.hasTakenDamage;
@@ -140,39 +134,17 @@ registerDragonBehavior({
 
 registerDragonBehavior({
   type: DragonPersonalityType.BRUTAL,
-  breathPower() {
-    return 1;
+  breathPower(dragon) {
+    return breathPowerFromSectorRange(dragon.breathRange);
   },
   describe(dragon) {
-    return `${dragon.name}喷吐残暴龙焰！`;
+    return `${dragon.name}喷吐龙焰！`;
   },
   effectDescriptions() {
-    return ['攻击区域空位生成 10 战力龙焰', '已有龙焰会继续叠加 10 战力', '所在区域变为黑夜时离开'];
+    return ['攻击结算后，在攻击范围空地生成 10 HP 龙焰', '已有龙焰则 +10 HP'];
   },
 });
 
-registerDragonBehavior({
-  type: DragonPersonalityType.SUN,
-  breathPower() {
-    return 1;
-  },
-  describe(dragon, targets) {
-    return `${dragon.name}释放耀光吐息！覆盖 ${targets.length} 个扇形`;
-  },
-  effectDescriptions() {
-    return ['释放耀光吐息', '所在区域变为黑夜时离开'];
-  },
-});
-
-registerDragonBehavior({
-  type: DragonPersonalityType.DARK,
-  breathPower() {
-    return 1;
-  },
-  describe(dragon, targets) {
-    return `${dragon.name}释放暗影吐息！覆盖 ${targets.length} 个扇形`;
-  },
-  effectDescriptions() {
-    return ['释放暗影吐息', '所在区域变为黑夜时离开'];
-  },
-});
+function breathPowerFromSectorRange(range: number): number {
+  return Math.max(1, Math.ceil(range / 2));
+}

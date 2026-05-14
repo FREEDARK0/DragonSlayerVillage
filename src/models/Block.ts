@@ -4,42 +4,49 @@ import { randInt } from '../utils/random';
 export interface BlockData {
   id: number;
   type: BlockType;
-  level: number;
-  combatPower: number;
-  generatedCombatPower?: number;
+  hp: number;
+  attack: number;
   tags: BlockTag[];
   shielded: boolean;
   targetColor?: number;
   targetDragonId?: string;
-  /** 巨弩冷却 */
   cooldown: number;
+  tempAttack: number;
+  tempHp: number;
+  turnAttackBonus: number;
   /** 风箱方向 1=CW, -1=CCW */
   direction?: number;
-  /** 铁匠铺相邻放置/升级加成，触发后成长 */
-  smithyPlacementBonus?: number;
 }
 
 let nextBlockId = 1;
 
-export function createBlock(type: BlockType, combatPower?: number, level: number = 1): BlockData {
+export function createBlock(type: BlockType, hp?: number, attack?: number): BlockData {
   const def = BLOCK_TYPE_TABLE[type];
-  const cp = combatPower ?? def.defaultPower;
   return {
     id: nextBlockId++,
-    type, level, combatPower: cp, tags: [...(def.tags ?? [])],
-    shielded: false, cooldown: 0,
+    type,
+    hp: hp ?? def.hp,
+    attack: attack ?? def.attack,
+    tags: [],
+    shielded: false,
+    cooldown: 0,
+    tempAttack: 0,
+    tempHp: 0,
+    turnAttackBonus: 0,
   };
 }
 
-export function createPowerStone(level: number = 1, combatPower: number = randInt(1, 20)): BlockData {
-  const block = createBlock(BlockType.POWER_STONE, combatPower, level);
-  block.generatedCombatPower = combatPower;
-  return block;
+export function createPowerStone(hp: number = randInt(1, 20)): BlockData {
+  return createBlock(BlockType.POWER_STONE, hp, 0);
 }
 
-/** 随机生成骑士/法师/巫毒之一 */
-export function createRandomBlock(): BlockData {
-  const types = [BlockType.KNIGHT, BlockType.MAGE, BlockType.VOODOO];
-  const type = types[Math.floor(Math.random() * types.length)];
-  return createBlock(type);
+export function createDragonFire(hp: number = 10): BlockData {
+  return createBlock(BlockType.DRAGON_FIRE, hp, 0);
+}
+
+export function createVoodooDoll(target: { id: string; color: number }): BlockData {
+  const block = createBlock(BlockType.VOODOO, 20, 0);
+  block.targetDragonId = target.id;
+  block.targetColor = target.color;
+  return block;
 }

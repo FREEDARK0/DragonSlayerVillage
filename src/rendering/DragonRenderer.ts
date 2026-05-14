@@ -2,7 +2,7 @@ import { Container, Graphics, Text } from 'pixi.js';
 import { GameRenderer } from './GameRenderer';
 import { DragonState } from '../models/Dragon';
 import { DragonPersonalityType } from '../config/dragonTypes';
-import { SECTOR_COUNT, edgeBreathSectors, sectorStartAngle, sectorEndAngle } from '../utils/SectorUtils';
+import { edgeBreathSectors, sectorStartAngle, sectorEndAngle } from '../utils/SectorUtils';
 import { getDragonBehavior } from '../effects/DragonBehaviorRegistry';
 import { TooltipPanel } from '../ui/TooltipPanel';
 
@@ -17,7 +17,7 @@ export class DragonRenderer {
     this.container = new Container();
     this.container.label = 'DragonRenderer';
     this.container.eventMode = 'static';
-    renderer.getLayer(5).addChild(this.container); // DRAGONS
+    renderer.getLayer(5).addChild(this.container);
 
     this.previewOutline = new Graphics();
     this.previewOutline.label = 'DragonPreviewOutline';
@@ -26,7 +26,6 @@ export class DragonRenderer {
     this.tooltip = new TooltipPanel(renderer, 'DragonTooltip');
   }
 
-  /** 清除所有龙 */
   clear(): void {
     this.container.removeChildren();
     this.dragonGraphics.clear();
@@ -34,7 +33,6 @@ export class DragonRenderer {
     this.tooltip.hide();
   }
 
-  /** 渲染所有龙立绘在上半圆弧上 */
   render(dragons: DragonState[], rotationDeg: number = 0, nightStart?: number, nightLen?: number): void {
     this.rotationDeg = rotationDeg;
     const nightSet = new Set<number>();
@@ -46,7 +44,6 @@ export class DragonRenderer {
     const cy = this.renderer.octagonCenterY;
     const R = this.renderer.octagonRadius;
 
-    // Remove dead dragons
     for (const [id, g] of this.dragonGraphics) {
       if (!alive.find(d => d.id === id)) {
         this.container.removeChild(g);
@@ -54,11 +51,9 @@ export class DragonRenderer {
       }
     }
 
-    // Position dragons at octagon vertices (slightly outside)
     const outerR = R * 1.25;
 
     for (const dragon of alive) {
-      // All dragons on edges (midpoint between two vertices)
       const a1 = (dragon.edgeIndex * Math.PI) / 4;
       const a2 = ((dragon.edgeIndex + 1) * Math.PI) / 4;
       const ma = (a1 + a2) / 2;
@@ -69,7 +64,7 @@ export class DragonRenderer {
       if (inNight) {
         const existing = this.dragonGraphics.get(dragon.id);
         if (existing) existing.visible = false;
-        continue; // skip rendering, dragon is hidden
+        continue;
       }
 
       let dContainer = this.dragonGraphics.get(dragon.id);
@@ -106,7 +101,6 @@ export class DragonRenderer {
     const g = new Graphics();
     const size = 45;
 
-    // Draw different dragon shapes based on personality
     switch (dragon.personality) {
       case DragonPersonalityType.ARROGANT:
         this.drawArrogantDragon(g, size, dragon.color);
@@ -131,9 +125,8 @@ export class DragonRenderer {
         break;
     }
 
-    // Attack damage above HP bar
     const atkText = new Text({
-      text: `⚔${Math.round(dragon.combatPower * dragon.attackMultiplier)}`,
+      text: `攻${dragon.attack}`,
       style: {
         fontFamily: 'monospace',
         fontSize: 16,
@@ -146,8 +139,7 @@ export class DragonRenderer {
     atkText.anchor.set(0.5, 1);
     atkText.position.set(0, size + 6);
 
-    // HP bar below dragon
-    const hpRatio = dragon.combatPower / dragon.maxCombatPower;
+    const hpRatio = dragon.maxHp > 0 ? dragon.hp / dragon.maxHp : 0;
     const barWidth = size * 1.5;
     const barHeight = 6;
     g.roundRect(-barWidth / 2, size + 8, barWidth, barHeight, 2);
@@ -155,12 +147,11 @@ export class DragonRenderer {
     g.roundRect(-barWidth / 2, size + 8, barWidth * hpRatio, barHeight, 2);
     g.fill(hpRatio > 0.3 ? 0x44cc44 : 0xcc4444);
 
-    // Name text
     const nameText = new Text({
-      text: dragon.name,
+      text: `${dragon.name} ${dragon.hp}/${dragon.maxHp}`,
       style: {
         fontFamily: 'monospace',
-        fontSize: 12,
+        fontSize: 11,
         fill: 0xffffff,
         align: 'center',
       },
@@ -173,7 +164,6 @@ export class DragonRenderer {
     container.addChild(nameText);
   }
 
-  /** 鼠标悬停时绘制龙将要攻击的区域轮廓 */
   private drawPreviewOutline(dragon: DragonState): void {
     this.previewOutline.clear();
     const cx = this.renderer.octagonCenterX;
@@ -200,11 +190,10 @@ export class DragonRenderer {
   private showDragonTooltip(dragon: DragonState, dragonX: number, dragonY: number): void {
     const behavior = getDragonBehavior(dragon.personality);
     const effects = behavior.effectDescriptions?.(dragon) ?? ['标准吐息'];
-    const attack = Math.round(dragon.combatPower * dragon.attackMultiplier);
     this.tooltip.show([
       { text: dragon.name },
-      { text: `战力: ${dragon.combatPower}/${dragon.maxCombatPower}` },
-      { text: `攻击倍率: x${dragon.attackMultiplier.toFixed(2)}  伤害: ${attack}` },
+      { text: `HP: ${dragon.hp}/${dragon.maxHp}` },
+      { text: `攻击力: ${dragon.attack}` },
       ...effects.map(effect => ({ text: `- ${effect}` })),
     ], dragonX, dragonY);
   }
@@ -214,33 +203,27 @@ export class DragonRenderer {
   }
 
   private drawGoldDragon(g: Graphics, size: number, color: number): void {
-    // Sleek serpentine body with treasure aura
     g.ellipse(0, size * 0.1, size * 0.35, size * 0.7);
     g.fill(color);
     g.stroke({ width: 1.5, color: 0xffdd44 });
-    // Coins around
     for (let i = 0; i < 4; i++) {
       const a = i * Math.PI / 2;
       g.circle(Math.cos(a) * size * 0.5, Math.sin(a) * size * 0.5, size * 0.12);
       g.fill(0xffdd44);
     }
-    // Eye
     g.circle(0, -size * 0.2, size * 0.1);
     g.fill(0xffffff);
   }
 
   private drawBrutalDragon(g: Graphics, size: number, color: number): void {
-    // Heavy muscular body
     g.ellipse(0, -size * 0.05, size * 0.5, size * 0.65);
     g.fill(color);
     g.stroke({ width: 2, color: 0xff0000 });
-    // Spikes
     for (let i = 0; i < 5; i++) {
       const a = -Math.PI / 2 + i * Math.PI / 4;
       g.poly([Math.cos(a) * size * 0.4, Math.sin(a) * size * 0.6, Math.cos(a) * size * 0.7, Math.sin(a) * size * 0.95, Math.cos(a) * size * 0.5, Math.sin(a) * size * 0.55]);
       g.fill(0x880000);
     }
-    // Glowing eyes
     g.circle(-size * 0.15, -size * 0.25, size * 0.13);
     g.fill(0xff4400);
     g.circle(size * 0.15, -size * 0.25, size * 0.13);
@@ -248,38 +231,21 @@ export class DragonRenderer {
   }
 
   private drawWyvernDragon(g: Graphics, size: number, color: number): void {
-    // Lean body with oversized wings.
     g.ellipse(0, size * 0.05, size * 0.3, size * 0.65);
     g.fill(color);
     g.stroke({ width: 1.5, color: lightenColor(color, 0.35) });
-
-    g.poly([
-      -size * 0.25, -size * 0.1,
-      -size * 1.05, -size * 0.75,
-      -size * 0.75, size * 0.25,
-    ]);
+    g.poly([-size * 0.25, -size * 0.1, -size * 1.05, -size * 0.75, -size * 0.75, size * 0.25]);
     g.fill(darkenColor(color, 0.25));
-    g.poly([
-      size * 0.25, -size * 0.1,
-      size * 1.05, -size * 0.75,
-      size * 0.75, size * 0.25,
-    ]);
+    g.poly([size * 0.25, -size * 0.1, size * 1.05, -size * 0.75, size * 0.75, size * 0.25]);
     g.fill(darkenColor(color, 0.25));
-
-    g.poly([
-      0, -size * 0.75,
-      size * 0.22, -size * 0.25,
-      -size * 0.22, -size * 0.25,
-    ]);
+    g.poly([0, -size * 0.75, size * 0.22, -size * 0.25, -size * 0.22, -size * 0.25]);
     g.fill(lightenColor(color, 0.15));
-
     g.circle(-size * 0.08, -size * 0.42, size * 0.08);
     g.fill(0xffffff);
     g.circle(size * 0.08, -size * 0.42, size * 0.08);
     g.fill(0xffffff);
   }
 
-  /** 龙攻击动画：缓慢放大→停顿→缓慢缩小 */
   animateAttack(dragonId: string): void {
     const dContainer = this.dragonGraphics.get(dragonId);
     if (!dContainer) return;
@@ -304,7 +270,6 @@ export class DragonRenderer {
     this.renderer.app.ticker.add(tick);
   }
 
-  /** 龙受击：快速缩小回弹并闪白 */
   animateHit(dragonId: string): void {
     const dContainer = this.dragonGraphics.get(dragonId);
     if (!dContainer || !dContainer.visible) return;
@@ -334,7 +299,6 @@ export class DragonRenderer {
     this.renderer.app.ticker.add(tick);
   }
 
-  /** 龙离开：缩小淡出 */
   animateDepart(dragonId: string): void {
     const dContainer = this.dragonGraphics.get(dragonId);
     if (!dContainer || !dContainer.visible) return;
@@ -366,80 +330,30 @@ export class DragonRenderer {
     return this.tooltip.isVisible();
   }
 
-  private drawHighlight(container: Container, dragon: DragonState): void {
-    container.removeChildren();
-    const g = new Graphics();
-    const size = 45;
-    // Glow effect
-    g.circle(0, 0, size + 8);
-    g.fill({ color: 0xffff88, alpha: 0.2 });
-    const innerG = new Graphics();
-    this.redrawDragon(container, dragon);
-  }
-
   private drawArrogantDragon(g: Graphics, size: number, color: number): void {
-    // Tall, angular dragon with wings spread
-    // Body
-    g.poly([
-      0, -size,
-      size * 0.5, -size * 0.3,
-      size * 0.7, size * 0.5,
-      size * 0.2, size * 0.8,
-      -size * 0.2, size * 0.8,
-      -size * 0.7, size * 0.5,
-      -size * 0.5, -size * 0.3,
-    ]);
+    g.poly([0, -size, size * 0.5, -size * 0.3, size * 0.7, size * 0.5, size * 0.2, size * 0.8, -size * 0.2, size * 0.8, -size * 0.7, size * 0.5, -size * 0.5, -size * 0.3]);
     g.fill(color);
     g.stroke({ width: 1.5, color: lightenColor(color, 0.3) });
-
-    // Wings
-    g.poly([
-      -size * 0.5, -size * 0.3,
-      -size, -size * 0.4,
-      -size * 0.7, size * 0.1,
-    ]);
+    g.poly([-size * 0.5, -size * 0.3, -size, -size * 0.4, -size * 0.7, size * 0.1]);
     g.fill(darkenColor(color, 0.3));
-    g.poly([
-      size * 0.5, -size * 0.3,
-      size, -size * 0.4,
-      size * 0.7, size * 0.1,
-    ]);
+    g.poly([size * 0.5, -size * 0.3, size, -size * 0.4, size * 0.7, size * 0.1]);
     g.fill(darkenColor(color, 0.3));
-
-    // Eye
     g.circle(size * 0.2, -size * 0.3, size * 0.12);
     g.fill(0xffff00);
   }
 
   private drawGluttonousDragon(g: Graphics, size: number, color: number): void {
-    // Round, stout dragon
     g.ellipse(0, size * 0.1, size * 0.8, size * 0.7);
     g.fill(color);
     g.stroke({ width: 1.5, color: lightenColor(color, 0.3) });
-
-    // Belly
     g.ellipse(0, size * 0.3, size * 0.5, size * 0.4);
     g.fill(lightenColor(color, 0.2));
-
-    // Small wings
-    g.poly([
-      -size * 0.6, -size * 0.2,
-      -size * 0.9, -size,
-      -size * 0.3, -size * 0.5,
-    ]);
+    g.poly([-size * 0.6, -size * 0.2, -size * 0.9, -size, -size * 0.3, -size * 0.5]);
     g.fill(darkenColor(color, 0.2));
-    g.poly([
-      size * 0.6, -size * 0.2,
-      size * 0.9, -size,
-      size * 0.3, -size * 0.5,
-    ]);
+    g.poly([size * 0.6, -size * 0.2, size * 0.9, -size, size * 0.3, -size * 0.5]);
     g.fill(darkenColor(color, 0.2));
-
-    // Open mouth
     g.ellipse(0, -size * 0.3, size * 0.2, size * 0.15);
     g.fill(0x882222);
-
-    // Eyes
     g.circle(-size * 0.2, -size * 0.4, size * 0.1);
     g.fill(0xffffff);
     g.circle(size * 0.2, -size * 0.4, size * 0.1);
@@ -447,50 +361,22 @@ export class DragonRenderer {
   }
 
   private drawDestructiveDragon(g: Graphics, size: number, color: number): void {
-    // Spiky, aggressive dragon
-    // Body
-    g.poly([
-      0, -size,
-      size * 0.6, -size * 0.4,
-      size * 0.8, size * 0.2,
-      size * 0.4, size * 0.8,
-      -size * 0.4, size * 0.8,
-      -size * 0.8, size * 0.2,
-      -size * 0.6, -size * 0.4,
-    ]);
+    g.poly([0, -size, size * 0.6, -size * 0.4, size * 0.8, size * 0.2, size * 0.4, size * 0.8, -size * 0.4, size * 0.8, -size * 0.8, size * 0.2, -size * 0.6, -size * 0.4]);
     g.fill(color);
     g.stroke({ width: 1.5, color: lightenColor(color, 0.3) });
-
-    // Spikes along back
     for (let i = 0; i < 5; i++) {
       const angle = -Math.PI / 2 + (Math.PI * (i / 4));
       const sx = Math.cos(angle) * size * 0.7;
       const sy = Math.sin(angle) * size * 0.7;
       const tipX = Math.cos(angle) * size * 1.1;
       const tipY = Math.sin(angle) * size * 1.1;
-      g.poly([
-        sx - 3, sy,
-        tipX, tipY,
-        sx + 3, sy,
-      ]);
+      g.poly([sx - 3, sy, tipX, tipY, sx + 3, sy]);
       g.fill(darkenColor(color, 0.4));
     }
-
-    // Large wings
-    g.poly([
-      -size * 0.5, -size * 0.2,
-      -size * 1.1, -size * 0.8,
-      -size * 0.6, size * 0.3,
-    ]);
+    g.poly([-size * 0.5, -size * 0.2, -size * 1.1, -size * 0.8, -size * 0.6, size * 0.3]);
     g.fill(darkenColor(color, 0.3));
-    g.poly([
-      size * 0.5, -size * 0.2,
-      size * 1.1, -size * 0.8,
-      size * 0.6, size * 0.3,
-    ]);
+    g.poly([size * 0.5, -size * 0.2, size * 1.1, -size * 0.8, size * 0.6, size * 0.3]);
     g.fill(darkenColor(color, 0.3));
-
-    // Glowing eyes
     g.circle(-size * 0.2, -size * 0.3, size * 0.15);
     g.fill(0xff4444);
     g.circle(size * 0.2, -size * 0.3, size * 0.15);

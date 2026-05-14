@@ -3,8 +3,8 @@ import { SECTOR_COUNT } from '../utils/SectorUtils';
 
 export class OctagonBoard {
   sectors: (BlockData | null)[];
-  /** 中心村庄战力 */
-  villagePower: number = 50;
+  villageHp: number = 50;
+  villageGold: number = 10;
 
   constructor() {
     this.sectors = new Array(SECTOR_COUNT).fill(null);
@@ -38,14 +38,12 @@ export class OctagonBoard {
     return empty;
   }
 
-  /** 遍历所有扇区 */
   forEach(fn: (block: BlockData | null, index: number) => void): void {
     for (let i = 0; i < SECTOR_COUNT; i++) {
       fn(this.sectors[i], i);
     }
   }
 
-  /** 查找第一个匹配的扇区 */
   findSector(predicate: (block: BlockData | null, index: number) => boolean): number | null {
     for (let i = 0; i < SECTOR_COUNT; i++) {
       if (predicate(this.sectors[i], i)) return i;
@@ -53,7 +51,6 @@ export class OctagonBoard {
     return null;
   }
 
-  /** 查找所有匹配的扇区 */
   findAllSectors(predicate: (block: BlockData | null, index: number) => boolean): number[] {
     const result: number[] = [];
     for (let i = 0; i < SECTOR_COUNT; i++) {

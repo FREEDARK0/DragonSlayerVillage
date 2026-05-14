@@ -1,7 +1,7 @@
 import { OctagonBoard } from '../core/OctagonBoard';
 import { DragonState, createDragon, resetDragonForSpawn } from '../models/Dragon';
-import { getAvailableDragons } from '../config/dragonTypes';
-import { createBlock, createPowerStone, createRandomBlock } from '../models/Block';
+import { DragonTemplate, getAvailableDragons } from '../config/dragonTypes';
+import { createBlock, createPowerStone } from '../models/Block';
 import { BlockType } from '../config/blockTypes';
 import { randInt, shuffle, weightedPick } from '../utils/random';
 
@@ -10,25 +10,26 @@ export class SpawnSystem {
   initMap(board: OctagonBoard): number {
     const indices = shuffle([0,1,2,3,4,5,6,7]);
     for (let i = 0; i < 3; i++) board.setSector(indices[i], createPowerStone());
-    for (let i = 3; i < 5; i++) board.setSector(indices[i], createBlock(BlockType.WOOD_WALL, 10));
+    for (let i = 3; i < 5; i++) board.setSector(indices[i], createBlock(BlockType.WOOD_WALL));
     return 0;
   }
 
   replenishBlock(board: OctagonBoard, sector: number): void {
     if (board.isEmpty(sector)) {
-      board.setSector(sector, createRandomBlock());
+      const types = [BlockType.KNIGHT, BlockType.MAGE, BlockType.WIZARD];
+      board.setSector(sector, createBlock(types[randInt(0, types.length - 1)]));
     }
   }
 
   spawnDragons(
-    year: number,
-    _phase: string,
+    turnNumber: number,
     countRange: [number, number],
     existingDragons: DragonState[],
     nextTurn: number = 1,
+    preferredEdge?: (template: DragonTemplate, usedEdges: Set<number>) => number | null,
   ): DragonState[] {
     const newDragons: DragonState[] = [];
-    const available = getAvailableDragons(year);
+    const available = getAvailableDragons(turnNumber);
     if (available.length === 0) return newDragons;
     const count = randInt(countRange[0], countRange[1]);
     const needed = count - existingDragons.filter(d => d.isAlive).length;
@@ -39,16 +40,20 @@ export class SpawnSystem {
       const candidates = available.filter(t => (liveByTemplate.get(t.id) ?? 0) < t.quantity);
       if (candidates.length === 0) break;
       const free = [0,1,2,3,4,5,6,7].filter(e => !usedEdges.has(e));
-      const edge = free.length > 0 ? free[Math.floor(Math.random() * free.length)] : i % 8;
-      usedEdges.add(edge);
+      if (free.length === 0) break;
       const template = weightedPick(candidates, candidates.map(d => d.spawnWeight));
+      const preferred = preferredEdge?.(template, usedEdges);
+      const edge = preferred !== null && preferred !== undefined && !usedEdges.has(preferred)
+        ? preferred
+        : free[Math.floor(Math.random() * free.length)];
+      usedEdges.add(edge);
       liveByTemplate.set(template.id, (liveByTemplate.get(template.id) ?? 0) + 1);
       const reusable = readyByTemplate.get(template.id)?.shift();
       if (reusable) {
-        resetDragonForSpawn(reusable, template, year, edge);
+        resetDragonForSpawn(reusable, template, edge);
         newDragons.push(reusable);
       } else {
-        newDragons.push(createDragon(template, year, edge));
+        newDragons.push(createDragon(template, edge));
       }
     }
     return newDragons;
@@ -59,7 +64,7 @@ export class SpawnSystem {
   }
 }
 
-function buildRespawnPools(dragons: DragonState[], nextTurn: number): {
+export function buildRespawnPools(dragons: DragonState[], nextTurn: number): {
   liveByTemplate: Map<string, number>;
   readyByTemplate: Map<string, DragonState[]>;
 } {

@@ -12,7 +12,7 @@ export class BlockRenderer {
   constructor(private renderer: GameRenderer) {
     this.container = new Container();
     this.container.label = 'BlockRenderer';
-    renderer.getLayer(3).addChild(this.container); // BLOCKS
+    renderer.getLayer(3).addChild(this.container);
   }
 
   render(board: OctagonBoard, blockAnims?: Map<string, BlockAnimation>, rotationDeg: number = 0, powerAnims?: Map<string, BlockAnimation>): void {
@@ -24,7 +24,6 @@ export class BlockRenderer {
     for (let i = 0; i < SECTOR_COUNT; i++) {
       const block = board.getSector(i);
       if (!block) continue;
-      // Position at mid-radius (between inner and outer octagon)
       const midR = R * 0.62;
       const angle = sectorAngle(i, rotationDeg);
       const cx = cxOct + Math.cos(angle) * midR;
@@ -46,8 +45,7 @@ export class BlockRenderer {
       g.label = `Block-${block.type}[${i}]`;
       bc.addChild(g);
 
-      // Value display
-      if (block.combatPower > 0 && animAlpha > 0.3) {
+      if (block.hp > 0 && animAlpha > 0.3) {
         const powerAnim = powerAnims?.get(`${i}`);
         const powerScaleX = powerAnim?.scaleX ?? 1;
         const powerScaleY = powerAnim?.scaleY ?? 1;
@@ -56,7 +54,7 @@ export class BlockRenderer {
         const wx = cxOct + Math.cos(valAngle) * valR;
         const wy = cyOct + Math.sin(valAngle) * valR;
         const valText = new Text({
-          text: `${block.combatPower}`,
+          text: `${block.hp}`,
           style: { fontFamily: 'Arial', fontSize: 14, fill: 0xffffff, fontWeight: 'bold', stroke: { color: 0x000000, width: 3 } },
         });
         valText.anchor.set(0.5, 0.5);
@@ -67,15 +65,25 @@ export class BlockRenderer {
         bc.addChild(valText);
       }
 
-      // Block name label
       const labelText = new Text({
-        text: `${BLOCK_TYPE_TABLE[block.type].label} Lv.${block.level ?? 1}`,
+        text: BLOCK_TYPE_TABLE[block.type].label,
         style: { fontFamily: 'Arial', fontSize: 9, fill: 0xcccccc, align: 'center' },
       });
       labelText.anchor.set(0.5, 0);
       labelText.position.set(0, s * 0.7);
       labelText.rotation = 0;
       bc.addChild(labelText);
+
+      if (block.attack > 0) {
+        const attackText = new Text({
+          text: `攻${block.attack + block.tempAttack + block.turnAttackBonus}`,
+          style: { fontFamily: 'Arial', fontSize: 9, fill: 0xffd0d0, fontWeight: 'bold', stroke: { color: 0x000000, width: 2 } },
+        });
+        attackText.anchor.set(0.5, 0);
+        attackText.position.set(0, s * 0.96);
+        attackText.rotation = 0;
+        bc.addChild(attackText);
+      }
 
       this.container.addChild(bc);
     }

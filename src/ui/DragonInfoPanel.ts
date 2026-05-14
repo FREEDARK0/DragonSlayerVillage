@@ -2,7 +2,6 @@ import { Container, Graphics, Text } from 'pixi.js';
 import { GameRenderer } from '../rendering/GameRenderer';
 import { DragonState } from '../models/Dragon';
 import { DragonPersonalityType } from '../config/dragonTypes';
-import { GAME_CONSTANTS } from '../config/constants';
 
 export class DragonInfoPanel {
   private container: Container;
@@ -22,16 +21,13 @@ export class DragonInfoPanel {
     this.container.visible = true;
 
     const panelW = 200;
-    const panelH = 140;
-
-    // Panel background
+    const panelH = 128;
     const bg = new Graphics();
     bg.roundRect(0, 0, panelW, panelH, 8);
     bg.fill({ color: 0x243748, alpha: 0.92 });
     bg.stroke({ width: 1, color: 0xf4d084, alpha: 0.85 });
     this.container.addChild(bg);
 
-    // Dragon name
     const nameText = new Text({
       text: dragon.name,
       style: { fontFamily: 'monospace', fontSize: 16, fill: dragon.color, fontWeight: 'bold' },
@@ -39,89 +35,53 @@ export class DragonInfoPanel {
     nameText.position.set(10, 8);
     this.container.addChild(nameText);
 
-    // Personality
     const personalityNames: Record<string, string> = {
-      [DragonPersonalityType.ARROGANT]: '高傲 - 侧翼强化',
+      [DragonPersonalityType.ARROGANT]: '高傲 - 追逐强者',
       [DragonPersonalityType.GLUTTONOUS]: '贪食 - 白昼吞龙',
-      [DragonPersonalityType.DESTRUCTIVE]: '破坏 - 交替追击',
+      [DragonPersonalityType.DESTRUCTIVE]: '破坏 - 击破追击',
       [DragonPersonalityType.GOLD]: '黄金 - 随机金矿',
       [DragonPersonalityType.WYVERN]: '亚龙 - 受伤后离开',
-      [DragonPersonalityType.BRUTAL]: '暴虐 - 生成龙焰',
-      [DragonPersonalityType.SUN]: '太阳 - 耀光吐息',
-      [DragonPersonalityType.DARK]: '暗影 - 暗影吐息',
+      [DragonPersonalityType.BRUTAL]: '火龙 - 生成龙焰',
     };
     const persText = new Text({
       text: personalityNames[dragon.personality] || dragon.personality,
       style: { fontFamily: 'monospace', fontSize: 10, fill: 0xaaaaaa },
     });
-    persText.position.set(10, 28);
+    persText.position.set(10, 30);
     this.container.addChild(persText);
 
-    // HP bar
     const barBg = new Graphics();
-    barBg.roundRect(10, 45, panelW - 20, 14, 3);
+    barBg.roundRect(10, 48, panelW - 20, 14, 3);
     barBg.fill(0x333333);
     this.container.addChild(barBg);
 
-    const hpRatio = dragon.combatPower / dragon.maxCombatPower;
-    const hpColor = hpRatio > 0.3 ? 0x44cc44 : 0xcc4444;
+    const hpRatio = dragon.maxHp > 0 ? dragon.hp / dragon.maxHp : 0;
     const hpBar = new Graphics();
-    hpBar.roundRect(10, 45, (panelW - 20) * hpRatio, 14, 3);
-    hpBar.fill(hpColor);
+    hpBar.roundRect(10, 48, (panelW - 20) * hpRatio, 14, 3);
+    hpBar.fill(hpRatio > 0.3 ? 0x44cc44 : 0xcc4444);
     this.container.addChild(hpBar);
 
     const hpText = new Text({
-      text: `战力: ${dragon.combatPower}/${dragon.maxCombatPower}`,
+      text: `HP: ${dragon.hp}/${dragon.maxHp}`,
       style: { fontFamily: 'monospace', fontSize: 10, fill: 0xffffff },
     });
-    hpText.position.set(12, 46);
+    hpText.position.set(12, 49);
     this.container.addChild(hpText);
 
-    // Attack damage
     const atkText = new Text({
-      text: `攻击力: ${Math.round(dragon.combatPower * dragon.attackMultiplier)}`,
+      text: `攻击力: ${dragon.attack}`,
       style: { fontFamily: 'monospace', fontSize: 11, fill: 0xff8888 },
     });
-    atkText.position.set(10, 65);
+    atkText.position.set(10, 68);
     this.container.addChild(atkText);
 
-    // Announced targets (arrogant)
-    if (dragon.announcedTargets && dragon.announcedTargets.length > 0) {
-      const annText = new Text({
-        text: `预告攻击: 扇形 ${dragon.announcedTargets.join(', ')}`,
-        style: { fontFamily: 'monospace', fontSize: 10, fill: 0xff4444 },
-      });
-      annText.position.set(10, 82);
-      this.container.addChild(annText);
-    }
-
-    // Satiation (gluttonous)
     if (dragon.personality === DragonPersonalityType.GLUTTONOUS) {
-      const satText = new Text({
+      const count = new Text({
         text: `攻击计数: ${dragon.attackCount}/2`,
         style: { fontFamily: 'monospace', fontSize: 10, fill: 0xff8844 },
       });
-      satText.position.set(10, 98);
-      this.container.addChild(satText);
-    }
-
-    // Damage dealt (destructive)
-    if (dragon.personality === DragonPersonalityType.DESTRUCTIVE) {
-      const dmgText = new Text({
-        text: '范围交替；击破后顺时针追击',
-        style: { fontFamily: 'monospace', fontSize: 10, fill: 0xcc44cc },
-      });
-      dmgText.position.set(10, 98);
-      this.container.addChild(dmgText);
-    }
-
-    if (dragon.personality === DragonPersonalityType.ARROGANT) {
-      const arrogantText = new Text({
-        text: `攻击倍率: x${dragon.attackMultiplier.toFixed(2)}`,
-        style: { fontFamily: 'monospace', fontSize: 10, fill: 0xffaaaa },
-      });
-      arrogantText.position.set(10, 98);
-      this.container.addChild(arrogantText);
+      count.position.set(10, 88);
+      this.container.addChild(count);
     }
 
     if (dragon.personality === DragonPersonalityType.WYVERN) {
@@ -129,7 +89,7 @@ export class DragonInfoPanel {
         text: dragon.hasTakenDamage ? '已受伤：回合后离开' : '尚未受伤',
         style: { fontFamily: 'monospace', fontSize: 10, fill: 0x88dd88 },
       });
-      hurtText.position.set(10, 98);
+      hurtText.position.set(10, 88);
       this.container.addChild(hurtText);
     }
   }
