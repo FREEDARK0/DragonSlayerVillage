@@ -1,4 +1,4 @@
-import { BLOCK_TYPE_TABLE, BlockType } from '../config/blockTypes';
+import { BLOCK_TYPE_TABLE, BlockType, getBlockTypeDescriptions } from '../config/blockTypes';
 import { EventBus } from '../core/EventBus';
 import { BlockData, createBlock, createDragonFire, createPowerStone, createVoodooDoll } from '../models/Block';
 import { DragonState, dragonTakeDamage, markDragonDefeated } from '../models/Dragon';
@@ -96,7 +96,7 @@ export function runBlockTurnEnd(ctx: EffectContext): void {
 }
 
 export function getBlockEffectDescriptions(type: BlockType): string[] {
-  return getBlockEffect(type)?.describe?.() ?? ['暂无主动效果'];
+  return getBlockTypeDescriptions(type);
 }
 
 export function getBlockAttack(block: BlockData, ctx?: EffectContext, sector?: number): number {

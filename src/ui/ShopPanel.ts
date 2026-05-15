@@ -1,6 +1,6 @@
 import { Container, Graphics, Text } from 'pixi.js';
 import { GameRenderer, RenderLayer } from '../rendering/GameRenderer';
-import { BLOCK_TYPE_TABLE, BlockType, ShopItem, SpellType } from '../config/blockTypes';
+import { BLOCK_TYPE_TABLE, BlockType, ShopItem, SpellType, getSpellTypeDescriptions } from '../config/blockTypes';
 import { getBlockEffectDescriptions } from '../effects/BlockEffectRegistry';
 import { BlockData } from '../models/Block';
 import { drawBlockVisual } from '../rendering/BlockVisualRegistry';
@@ -485,13 +485,7 @@ function getBlockShopDescriptions(blockType: BlockType, hp: number, attack: numb
 }
 
 function getSpellDescriptions(spellType: SpellType): string[] {
-  if (spellType === SpellType.MISSILE) return ['对选择目标造成 5 点伤害；每个法师增加 1 次效果并附加攻击力'];
-  if (spellType === SpellType.FOCUS_DEFENSE) return ['指定友方，吸收左右相邻友方各一半 HP'];
-  if (spellType === SpellType.FOCUS_BREAKTHROUGH) return ['指定友方，吸收左右相邻友方各一半攻击力'];
-  if (spellType === SpellType.SACRIFICE) return ['摧毁指定友方，将其一半 HP/攻击传递给随机友方'];
-  if (spellType === SpellType.BULWARK) return ['所有攻击力为 0 的友方 +5 HP'];
-  if (spellType === SpellType.SHIELD_CRUSH) return ['摧毁攻击力为 0 的友方，对其扇区敌人造成其 HP 的伤害'];
-  return ['暂无说明'];
+  return getSpellTypeDescriptions(spellType);
 }
 
 function emptyLayout(): ShopLayoutSnapshot {

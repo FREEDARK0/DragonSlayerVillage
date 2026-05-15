@@ -1,14 +1,13 @@
 import { Container, Graphics, Text } from 'pixi.js';
 import { GameRenderer } from '../rendering/GameRenderer';
-import { GAME_CONSTANTS } from '../config/constants';
-
 export class PhaseAnnouncement {
   private container: Container;
   private bg: Graphics;
   private text: Text;
-  private life = 0;
-  private maxLife = 120;
+  private holdMs = 1400;
+  private fadeMs = 600;
   private active = false;
+  private activeTick: (() => void) | null = null;
 
   constructor(private renderer: GameRenderer) {
     this.container = new Container();
@@ -39,24 +38,40 @@ export class PhaseAnnouncement {
     this.container.addChild(this.text);
   }
 
-  show(message: string): void {
+  show(message: string, options: { holdMs?: number; fadeMs?: number } = {}): void {
+    if (this.activeTick) {
+      this.renderer.app.ticker.remove(this.activeTick);
+      this.activeTick = null;
+    }
     this.text.text = message;
     this.container.visible = true;
     this.container.alpha = 1;
     this.active = true;
-    this.life = 0;
+    this.holdMs = options.holdMs ?? 1400;
+    this.fadeMs = options.fadeMs ?? 600;
+    const startedAt = performance.now();
 
     const tick = () => {
-      this.life++;
-      if (this.life > this.maxLife * 0.7) {
-        this.container.alpha = 1 - (this.life - this.maxLife * 0.7) / (this.maxLife * 0.3);
+      const lifeMs = performance.now() - startedAt;
+      if (lifeMs > this.holdMs) {
+        this.container.alpha = 1 - Math.min(1, (lifeMs - this.holdMs) / this.fadeMs);
       }
-      if (this.life >= this.maxLife) {
+      if (lifeMs >= this.holdMs + this.fadeMs) {
         this.container.visible = false;
         this.active = false;
+        this.activeTick = null;
         this.renderer.app.ticker.remove(tick);
       }
     };
+    this.activeTick = tick;
     this.renderer.app.ticker.add(tick);
+  }
+
+  isVisible(): boolean {
+    return this.container.visible;
+  }
+
+  getText(): string {
+    return this.text.text;
   }
 }

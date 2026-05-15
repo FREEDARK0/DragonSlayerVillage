@@ -1,3 +1,5 @@
+import { GENERATED_DRAGON_DATA } from './generatedData';
+
 export enum DragonPersonalityType {
   ARROGANT = 'arrogant',
   GLUTTONOUS = 'gluttonous',
@@ -18,17 +20,60 @@ export interface DragonTemplate {
   unlockTurn: number;
   spawnWeight: number;
   quantity: number;
+  description: string;
+  growth: DragonGrowthStats[];
 }
 
-export const DRAGON_TEMPLATES: DragonTemplate[] = [
-  { id: 'wyvern', name: '亚龙', personality: DragonPersonalityType.WYVERN, hp: 15, attack: 5, breathRange: 1, color: 0x66aa66, unlockTurn: 1, spawnWeight: 4, quantity: 3 },
-  { id: 'aurus', name: '奥鲁斯', personality: DragonPersonalityType.GOLD, hp: 30, attack: 7, breathRange: 1, color: 0xffcc00, unlockTurn: 2, spawnWeight: 3, quantity: 2 },
-  { id: 'furo', name: '弗罗', personality: DragonPersonalityType.DESTRUCTIVE, hp: 30, attack: 10, breathRange: 3, color: 0x8844cc, unlockTurn: 4, spawnWeight: 2, quantity: 1 },
-  { id: 'ignis', name: '伊格尼斯', personality: DragonPersonalityType.ARROGANT, hp: 40, attack: 5, breathRange: 3, color: 0xff4444, unlockTurn: 6, spawnWeight: 2, quantity: 1 },
-  { id: 'gulo', name: '古洛', personality: DragonPersonalityType.GLUTTONOUS, hp: 30, attack: 5, breathRange: 3, color: 0xff8844, unlockTurn: 10, spawnWeight: 2, quantity: 1 },
-  { id: 'brutus', name: '布鲁图斯', personality: DragonPersonalityType.BRUTAL, hp: 50, attack: 10, breathRange: 1, color: 0xcc2222, unlockTurn: 10, spawnWeight: 2, quantity: 1 },
-];
+export interface DragonGrowthStats {
+  round: number;
+  hp: number;
+  attack: number;
+}
+
+export const DRAGON_TEMPLATES: DragonTemplate[] = GENERATED_DRAGON_DATA.map(row => {
+  const growth = row.growth.map(entry => ({ round: entry.round, hp: entry.hp, attack: entry.attack }));
+  const first = growth[0];
+  return {
+    id: row.id,
+    name: row.name,
+    personality: row.personality as DragonPersonalityType,
+    hp: first.hp,
+    attack: first.attack,
+    breathRange: row.breathRange,
+    color: row.color,
+    unlockTurn: row.unlockTurn,
+    spawnWeight: row.spawnWeight,
+    quantity: row.quantity,
+    description: row.description,
+    growth,
+  };
+});
 
 export function getAvailableDragons(turnNumber: number): DragonTemplate[] {
   return DRAGON_TEMPLATES.filter(d => d.unlockTurn <= turnNumber);
+}
+
+export function getDragonStatsForRound(template: DragonTemplate, round: number): DragonGrowthStats {
+  const normalizedRound = Math.max(1, Math.floor(round));
+  const defined = template.growth.find(entry => entry.round === normalizedRound);
+  if (defined) return { ...defined };
+
+  let stats = template.growth[template.growth.length - 1];
+  for (let current = stats.round + 1; current <= normalizedRound; current++) {
+    stats = {
+      round: current,
+      attack: Math.round(stats.attack * 1.5),
+      hp: Math.round(stats.hp * 1.5),
+    };
+  }
+  return { ...stats };
+}
+
+export function getDragonTemplateForRound(template: DragonTemplate, round: number): DragonTemplate {
+  const stats = getDragonStatsForRound(template, round);
+  return {
+    ...template,
+    hp: stats.hp,
+    attack: stats.attack,
+  };
 }

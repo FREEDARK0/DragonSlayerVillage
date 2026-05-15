@@ -1,3 +1,24 @@
+import { GENERATED_ITEM_DATA } from './generatedData';
+
+interface GeneratedItemRow {
+  id: string;
+  kind: string;
+  blockType: string;
+  spellType: string;
+  label: string;
+  cost: number;
+  hp: number;
+  attack: number;
+  color: number;
+  purchasable: boolean;
+  baseShop: boolean;
+  randomShop: boolean;
+  tags: readonly string[];
+  description: readonly string[];
+}
+
+const ITEM_ROWS: readonly GeneratedItemRow[] = GENERATED_ITEM_DATA;
+
 export enum BlockType {
   KNIGHT = 'knight',
   MAGE = 'mage',
@@ -42,31 +63,39 @@ export interface BlockTypeDef {
   hp: number;
   attack: number;
   purchasable: boolean;
+  description: string[];
 }
 
-export const BLOCK_TYPE_TABLE: Record<BlockType, BlockTypeDef> = {
-  [BlockType.KNIGHT]: { type: BlockType.KNIGHT, label: '骑士', color: 0x4488ff, hp: 20, attack: 10, purchasable: true },
-  [BlockType.MAGE]: { type: BlockType.MAGE, label: '法师', color: 0xaa44ff, hp: 8, attack: 1, purchasable: true },
-  [BlockType.WIZARD]: { type: BlockType.WIZARD, label: '巫师', color: 0x6b4bc2, hp: 8, attack: 0, purchasable: true },
-  [BlockType.VOODOO]: { type: BlockType.VOODOO, label: '巫毒娃娃', color: 0x888888, hp: 20, attack: 0, purchasable: false },
-  [BlockType.INFANTRY]: { type: BlockType.INFANTRY, label: '步兵', color: 0x4f8c5a, hp: 10, attack: 5, purchasable: true },
-  [BlockType.POWER_STONE]: { type: BlockType.POWER_STONE, label: '金矿', color: 0xffaa00, hp: 5, attack: 0, purchasable: false },
-  [BlockType.WEAKNESS]: { type: BlockType.WEAKNESS, label: '弱点', color: 0xff3333, hp: 0, attack: 0, purchasable: false },
-  [BlockType.DRAGON_FIRE]: { type: BlockType.DRAGON_FIRE, label: '龙焰', color: 0xff5522, hp: 10, attack: 0, purchasable: false },
-  [BlockType.WOOD_WALL]: { type: BlockType.WOOD_WALL, label: '木墙', color: 0x8b6914, hp: 8, attack: 0, purchasable: true },
-  [BlockType.BALLISTA]: { type: BlockType.BALLISTA, label: '巨弩', color: 0x888888, hp: 8, attack: 5, purchasable: true },
-  [BlockType.PRESSURE_STONE]: { type: BlockType.PRESSURE_STONE, label: '压力石', color: 0x6644aa, hp: 0, attack: 0, purchasable: true },
-  [BlockType.MINE]: { type: BlockType.MINE, label: '矿场', color: 0x888855, hp: 8, attack: 0, purchasable: true },
-  [BlockType.GUARDIAN]: { type: BlockType.GUARDIAN, label: '卫士', color: 0xffddaa, hp: 10, attack: 0, purchasable: true },
-  [BlockType.PORTAL]: { type: BlockType.PORTAL, label: '通道', color: 0x8844cc, hp: 30, attack: 0, purchasable: true },
-  [BlockType.SPIKES]: { type: BlockType.SPIKES, label: '地刺', color: 0xaaaaaa, hp: 15, attack: 2, purchasable: true },
-  [BlockType.TAVERN]: { type: BlockType.TAVERN, label: '酒馆', color: 0xcc8844, hp: 10, attack: 0, purchasable: true },
-  [BlockType.SMITHY]: { type: BlockType.SMITHY, label: '铁匠铺', color: 0xa86832, hp: 10, attack: 1, purchasable: true },
-  [BlockType.ASSASSIN]: { type: BlockType.ASSASSIN, label: '刺客', color: 0x333333, hp: 8, attack: 0, purchasable: true },
-  [BlockType.BELLOWS]: { type: BlockType.BELLOWS, label: '风箱', color: 0x7799aa, hp: 10, attack: 0, purchasable: true },
-  [BlockType.SENSING_WALL]: { type: BlockType.SENSING_WALL, label: '感应石墙', color: 0x4aa6aa, hp: 40, attack: 0, purchasable: true },
-  [BlockType.DRAGON_SPEAR]: { type: BlockType.DRAGON_SPEAR, label: '龙枪', color: 0xb83c2e, hp: 15, attack: 5, purchasable: true },
-};
+export const ITEM_DATA_BY_ID = new Map<string, GeneratedItemRow>(ITEM_ROWS.map(item => [item.id, item]));
+
+export const ITEM_DATA_BY_BLOCK_TYPE = new Map(
+  ITEM_ROWS
+    .filter(item => item.kind === 'block' && item.blockType)
+    .map(item => [item.blockType, item]),
+);
+
+export const ITEM_DATA_BY_SPELL_TYPE = new Map(
+  ITEM_ROWS
+    .filter(item => item.kind === 'spell' && item.spellType)
+    .map(item => [item.spellType, item]),
+);
+
+export const BLOCK_TYPE_TABLE: Record<BlockType, BlockTypeDef> = Object.fromEntries(
+  ITEM_ROWS
+    .filter(item => item.kind === 'block' && item.blockType)
+    .map(item => [
+      item.blockType,
+      {
+        type: item.blockType as BlockType,
+        label: item.label,
+        color: item.color,
+        hp: item.hp,
+        attack: item.attack,
+        purchasable: item.purchasable,
+        description: [...item.description],
+      },
+    ]),
+) as Record<BlockType, BlockTypeDef>;
 
 export interface BaseShopItem {
   id: string;
@@ -74,6 +103,7 @@ export interface BaseShopItem {
   label: string;
   cost: number;
   tags: string[];
+  description: string[];
 }
 
 export interface BlockShopItem extends BaseShopItem {
@@ -94,56 +124,57 @@ export const SHOP_TAG_BASE = '基础';
 export const SHOP_TAG_RANDOM = '随机';
 export const SHOP_TAG_SPELL = '法术';
 
-export const BASE_SHOP_ITEM_IDS = new Set(['block:wood_wall', 'block:mine', 'spell:missile']);
+export const BASE_SHOP_ITEM_IDS = new Set<string>(ITEM_ROWS.filter(item => item.baseShop).map(item => item.id));
 
-export const SHOP_ITEM_POOL: ShopItem[] = [
-  blockItem(BlockType.WOOD_WALL, 5),
-  blockItem(BlockType.MINE, 15),
-  spellItem(SpellType.MISSILE, '飞弹', 10),
-  blockItem(BlockType.BALLISTA, 10),
-  blockItem(BlockType.PRESSURE_STONE, 15),
-  blockItem(BlockType.GUARDIAN, 20),
-  blockItem(BlockType.PORTAL, 20),
-  blockItem(BlockType.SPIKES, 10),
-  blockItem(BlockType.TAVERN, 20),
-  blockItem(BlockType.SMITHY, 25),
-  blockItem(BlockType.ASSASSIN, 10),
-  blockItem(BlockType.BELLOWS, 20),
-  blockItem(BlockType.SENSING_WALL, 30),
-  blockItem(BlockType.DRAGON_SPEAR, 30),
-  blockItem(BlockType.KNIGHT, 25),
-  blockItem(BlockType.MAGE, 40),
-  blockItem(BlockType.WIZARD, 25),
-  blockItem(BlockType.INFANTRY, 15),
-  spellItem(SpellType.FOCUS_DEFENSE, '集中防御', 20),
-  spellItem(SpellType.FOCUS_BREAKTHROUGH, '集中突破', 25),
-  spellItem(SpellType.SACRIFICE, '献祭', 20),
-  spellItem(SpellType.BULWARK, '壁垒', 15),
-  spellItem(SpellType.SHIELD_CRUSH, '盾牌碾压', 25),
-];
+export const SHOP_ITEM_POOL: ShopItem[] = ITEM_ROWS
+  .filter(item => item.purchasable && (item.baseShop || item.randomShop))
+  .map(toShopItem);
 
 export const BASE_SHOP_ITEMS = SHOP_ITEM_POOL.filter(item => BASE_SHOP_ITEM_IDS.has(item.id));
-export const RANDOM_SHOP_POOL = SHOP_ITEM_POOL.filter(item => !BASE_SHOP_ITEM_IDS.has(item.id));
+export const RANDOM_SHOP_POOL = SHOP_ITEM_POOL.filter(item => {
+  const data = ITEM_DATA_BY_ID.get(item.id);
+  return Boolean(data?.randomShop);
+});
 
-function blockItem(blockType: BlockType, cost: number): BlockShopItem {
-  const def = BLOCK_TYPE_TABLE[blockType];
-  return {
-    id: `block:${blockType}`,
-    kind: 'block',
-    label: def.label,
-    cost,
-    tags: [SHOP_TAG_RANDOM],
-    blockType,
-    hp: def.hp,
-    attack: def.attack,
-  };
+export function getBlockTypeDescriptions(type: BlockType): string[] {
+  const description = BLOCK_TYPE_TABLE[type]?.description;
+  return description ? [...description] : ['暂无效果'];
 }
 
-function spellItem(spellType: SpellType, label: string, cost: number): SpellShopItem {
-  return { id: `spell:${spellType}`, kind: 'spell', label, cost, tags: [SHOP_TAG_SPELL], spellType };
+export function getSpellTypeDescriptions(spellType: SpellType): string[] {
+  const description = ITEM_DATA_BY_SPELL_TYPE.get(spellType)?.description;
+  return description ? [...description] : ['暂无说明'];
 }
 
 export function blockTagLabel(tag: BlockTag): string {
   if (tag === BlockTag.SPELL) return '法术';
   return tag;
+}
+
+function toShopItem(item: GeneratedItemRow): ShopItem {
+  const base = {
+    id: item.id,
+    label: item.label,
+    cost: item.cost,
+    tags: [...item.tags],
+    description: [...item.description],
+  };
+
+  if (item.kind === 'block') {
+    if (!item.blockType) throw new Error(`Missing blockType for ${item.id}`);
+    return {
+      ...base,
+      kind: 'block',
+      blockType: item.blockType as BlockType,
+      hp: item.hp,
+      attack: item.attack,
+    };
+  }
+
+  if (!item.spellType) throw new Error(`Missing spellType for ${item.id}`);
+  return {
+    ...base,
+    kind: 'spell',
+    spellType: item.spellType as SpellType,
+  };
 }

@@ -1,5 +1,6 @@
 export const SECTOR_COUNT = 8;
 export const SECTOR_ANGLE = (Math.PI * 2) / SECTOR_COUNT;
+export const RULE_NUMBER_START_SECTOR = 5;
 const DEG45 = Math.PI / 4;
 
 /** 角度（弧度）转度数偏移（45°步进） */
@@ -23,6 +24,15 @@ export function sectorStartAngle(index: number, rotationDeg: number = 0): number
 
 export function sectorEndAngle(index: number, rotationDeg: number = 0): number {
   return rotationToRad(rotationDeg) + (index + 1) * SECTOR_ANGLE;
+}
+
+export function sectorIndexToRuleNumber(index: number): number {
+  return (((index - RULE_NUMBER_START_SECTOR) % SECTOR_COUNT + SECTOR_COUNT) % SECTOR_COUNT) + 1;
+}
+
+export function ruleNumberToSectorIndex(ruleNumber: number): number {
+  const zeroBased = ((ruleNumber - 1) % SECTOR_COUNT + SECTOR_COUNT) % SECTOR_COUNT;
+  return (RULE_NUMBER_START_SECTOR + zeroBased) % SECTOR_COUNT;
 }
 
 /** 屏幕角度 → 扇形索引 (考虑旋转) */

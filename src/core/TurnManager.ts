@@ -2,7 +2,7 @@ import { GameState, TurnState } from './GameState';
 import { SpawnSystem, buildRespawnPools } from '../systems/SpawnSystem';
 import { DragonAI, highestAttackFriendlySector, nearestFreeEdge } from '../ai/DragonAI';
 import { createDragon, resetDragonForSpawn, DragonState } from '../models/Dragon';
-import { getAvailableDragons, DragonPersonalityType } from '../config/dragonTypes';
+import { getAvailableDragons, DragonPersonalityType, getDragonTemplateForRound } from '../config/dragonTypes';
 import { EventBus } from './EventBus';
 import { weightedPick } from '../utils/random';
 import { createEffectContext } from '../effects/EffectContext';
@@ -70,6 +70,8 @@ export class TurnManager {
     if (rhythmResult.completedRound) {
       await waitForTurnAnimation(RHYTHM_NODE_ANIMATION_MS);
       this.rhythmSystem.startNextRound(this.state);
+      this.state.dragonGrowthRound = (this.state.rhythm?.round ?? 0) + 1;
+      EventBus.emit('dragonGrowthAdvanced', { round: this.state.dragonGrowthRound });
     }
     this.state.skipRemainingDragonActions = false;
     this.state.turnNumber++;
@@ -116,13 +118,14 @@ export class TurnManager {
   }
 
   private spawnOrReuseDragon(template: DragonTemplate, edgeIndex: number, readyByTemplate: Map<string, DragonState[]>): DragonState {
+    const scaledTemplate = getDragonTemplateForRound(template, this.state.dragonGrowthRound);
     const reusable = readyByTemplate.get(template.id)?.shift();
     if (reusable) {
-      resetDragonForSpawn(reusable, template, edgeIndex);
+      resetDragonForSpawn(reusable, scaledTemplate, edgeIndex);
       return reusable;
     }
 
-    const dragon = createDragon(template, edgeIndex);
+    const dragon = createDragon(scaledTemplate, edgeIndex);
     this.state.dragons.push(dragon);
     return dragon;
   }

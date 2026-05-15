@@ -25,6 +25,7 @@ export class GameState {
   turnState: TurnState = TurnState.WAITING_FOR_INPUT;
   turnNumber: number = 0;
   year: number = 1;
+  dragonGrowthRound: number = 1;
   skipRemainingDragonActions: boolean = false;
   rhythm: RhythmState | null = null;
 

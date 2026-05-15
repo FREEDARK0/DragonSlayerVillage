@@ -21,11 +21,19 @@ import { ShopSystem } from './systems/ShopSystem';
 import { TooltipPanel, TooltipLine } from './ui/TooltipPanel';
 import { getBlockAttack, getBlockEffectDescriptions } from './effects/BlockEffectRegistry';
 import { createEffectContext } from './effects/EffectContext';
+import { sectorIndexToRuleNumber } from './utils/SectorUtils';
 
 declare global {
+  interface ImportMeta {
+    env: {
+      MODE?: string;
+    };
+  }
+
   interface Window {
     __dragonSlayerGame?: {
       getSnapshot: () => unknown;
+      prepareDragonGrowthAnnouncementTest?: () => void;
     };
   }
 }
@@ -105,9 +113,13 @@ export class Game {
     this.setupEvents();
     await this.dragonRenderer.preloadAssets();
     this.startGame();
-    window.__dragonSlayerGame = {
+    const testApi: NonNullable<Window['__dragonSlayerGame']> = {
       getSnapshot: () => this.getSnapshot(),
     };
+    if (import.meta.env.MODE === 'test') {
+      testApi.prepareDragonGrowthAnnouncementTest = () => this.prepareDragonGrowthAnnouncementTest();
+    }
+    window.__dragonSlayerGame = testApi;
     const animate = () => {
       this.effectRenderer.update();
       if (this.effectRenderer.hasActiveBoardAnimations()) this.renderAll();
@@ -141,6 +153,9 @@ export class Game {
   private setupEvents(): void {
     EventBus.on('phaseChanged', (payload: { message: string }) => {
       this.phaseAnnouncement.show(payload.message);
+    });
+    EventBus.on('dragonGrowthAdvanced', () => {
+      this.phaseAnnouncement.show('龙龙变得更强了', { holdMs: 1000, fadeMs: 650 });
     });
     EventBus.on('gameOver', (payload: { reason: string }) => {
       this.state.gameOver = true;
@@ -346,7 +361,7 @@ export class Game {
       return [
         { text: '空地' },
         { text: '可在行动模式放置建筑', color: 0xb7f7a2, bold: true },
-        { text: `扇区: ${sector + 1}` },
+        { text: `扇区: ${sectorIndexToRuleNumber(sector)}` },
       ];
     }
 
@@ -355,7 +370,7 @@ export class Game {
     const lines: TooltipLine[] = [
       { text: def.label },
       { text: `HP: ${block.hp}  攻击: ${getBlockAttack(block, ctx, sector)}`, color: 0xb7f7a2, bold: true },
-      { text: `扇区: ${sector + 1}` },
+      { text: `扇区: ${sectorIndexToRuleNumber(sector)}` },
     ];
     if (block.tags.length > 0) {
       lines.push({ text: `标签: ${block.tags.map(blockTagLabel).join('、')}` });
@@ -431,12 +446,35 @@ export class Game {
       rhythmTooltipVisible: this.rhythmBar.isTooltipVisible(),
       rhythmTooltipLines: this.rhythmBar.getTooltipLines(),
       turnHintVisible: this.turnHint.isVisible(),
+      phaseAnnouncementVisible: this.phaseAnnouncement.isVisible(),
+      phaseAnnouncementText: this.phaseAnnouncement.getText(),
       dragonTooltipVisible: this.dragonRenderer.isTooltipVisible(),
       dragonAssetNames: this.dragonRenderer.getTemplateAssetNames(),
       shopTooltipVisible: this.shopPanel.isTooltipVisible(),
       shopTooltipLines: this.shopPanel.getTooltipLines(),
       shopTooltipLayout: this.shopPanel.getTooltipLayout(),
       boardTooltipVisible: this.boardTooltip.isVisible(),
+      boardTooltipLines: this.boardTooltip.getLines(),
     };
+  }
+
+  private prepareDragonGrowthAnnouncementTest(): void {
+    this.state.board.villageHp = 999;
+    this.state.dragons = [];
+    this.state.gameOver = false;
+    this.state.gameOverReason = '';
+    this.state.turnState = TurnState.WAITING_FOR_INPUT;
+    this.state.rhythm = {
+      round: 0,
+      nodeIndex: 0,
+      roundLength: 1,
+      lastTriggeredIndex: null,
+      nodes: [{ id: 'test-growth', type: 'normal', triggered: false }],
+    };
+    this.shopSystem.cancelPlacement();
+    this.drawShop();
+    this.drawRotationControls();
+    this.renderAll();
+    this.enableInput();
   }
 }

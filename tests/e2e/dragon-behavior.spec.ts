@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { BLOCK_TYPE_TABLE, BlockType, SHOP_ITEM_POOL, SpellType } from '../../src/config/blockTypes';
-import { DRAGON_TEMPLATES, DragonPersonalityType, DragonTemplate } from '../../src/config/dragonTypes';
+import { DRAGON_TEMPLATES, DragonPersonalityType, DragonTemplate, getDragonStatsForRound } from '../../src/config/dragonTypes';
 import { DragonAI, buildSymmetricSectorWaves, nearestFreeEdge } from '../../src/ai/DragonAI';
 import { GameState } from '../../src/core/GameState';
 import { TurnManager } from '../../src/core/TurnManager';
@@ -19,6 +19,7 @@ import { createBlock, createPowerStone } from '../../src/models/Block';
 import { createDragon, dragonTakeDamage, markDragonDefeated } from '../../src/models/Dragon';
 import { ShopSystem } from '../../src/systems/ShopSystem';
 import { RhythmSystem, roundLengthFor } from '../../src/systems/RhythmSystem';
+import { sectorIndexToRuleNumber, ruleNumberToSectorIndex } from '../../src/utils/SectorUtils';
 
 function template(id: string): DragonTemplate {
   const found = DRAGON_TEMPLATES.find(dragon => dragon.id === id);
@@ -37,6 +38,14 @@ test('dragon templates use hp, attack, breath range, and turn unlocks', () => {
   expect(template('gulo')).toMatchObject({ name: '古洛', hp: 30, attack: 5, breathRange: 3, unlockTurn: 10 });
   expect(template('wyvern')).toMatchObject({ personality: DragonPersonalityType.WYVERN, hp: 15, attack: 5, unlockTurn: 1, quantity: 3 });
   expect(BLOCK_TYPE_TABLE[BlockType.POWER_STONE].label).toBe('金矿');
+});
+
+test('dragon growth table matches configured rounds and extrapolates after round six', () => {
+  expect(getDragonStatsForRound(template('wyvern'), 1)).toMatchObject({ attack: 5, hp: 15 });
+  expect(getDragonStatsForRound(template('wyvern'), 6)).toMatchObject({ attack: 45, hp: 144 });
+  expect(getDragonStatsForRound(template('aurus'), 4)).toMatchObject({ attack: 22, hp: 114 });
+  expect(getDragonStatsForRound(template('brutus'), 6)).toMatchObject({ attack: 50, hp: 480 });
+  expect(getDragonStatsForRound(template('brutus'), 7)).toMatchObject({ attack: 75, hp: 720 });
 });
 
 test('aurus breath creates a gold mine on empty sectors and damages village hp', async () => {
@@ -92,7 +101,7 @@ test('breath hit feedback advances from center in symmetric waves', () => {
   expect(buildSymmetricSectorWaves([6, 7, 0, 1, 2])).toEqual([[0], [7, 1], [6, 2]]);
 });
 
-test('dragon actions start at the upper-right sector and continue clockwise', async () => {
+test('dragon actions start at rule sector 1 and continue clockwise', async () => {
   const state = new GameState();
   state.board.villageHp = 200;
   const edges = [2, 7, 4, 0, 6, 1, 5, 3];
@@ -101,6 +110,12 @@ test('dragon actions start at the upper-right sector and continue clockwise', as
   const decisions = await new DragonAI().executeTurn(state, 0);
 
   expect(decisions.map(decision => decision.dragon.edgeIndex)).toEqual([5, 6, 7, 0, 1, 2, 3, 4]);
+  expect(decisions.map(decision => sectorIndexToRuleNumber(decision.dragon.edgeIndex))).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+});
+
+test('rule sector numbering maps visual upper-right sector to 1', () => {
+  expect(ruleNumberToSectorIndex(1)).toBe(5);
+  expect([5, 6, 7, 0, 1, 2, 3, 4].map(sectorIndexToRuleNumber)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
 });
 
 test('rhythm round lengths grow and each final node is departure', () => {
@@ -159,6 +174,16 @@ test('rhythm departure node makes all live dragons leave but night growth does n
   state.nightStart = 4;
   state.nightLength = 2;
   state.nightGrowing = true;
+  state.rhythm = {
+    round: 0,
+    nodeIndex: 0,
+    roundLength: 2,
+    lastTriggeredIndex: null,
+    nodes: [
+      { id: 'test-normal', type: 'normal', triggered: false },
+      { id: 'test-departure', type: 'departure', triggered: false },
+    ],
+  };
   const wyvern = createDragon(template('wyvern'), 0);
   state.dragons = [wyvern];
 
@@ -182,6 +207,44 @@ test('rhythm departure node makes all live dragons leave but night growth does n
   expect(state.aliveDragons).toHaveLength(0);
   expect(wyvern.respawnAvailableTurn).toBeNull();
   expect(ignis.respawnAvailableTurn).toBeNull();
+});
+
+test('completed rhythm rounds advance future dragon growth without changing live dragons', async () => {
+  const state = new GameState();
+  const manager = new TurnManager(state);
+  state.board.villageHp = 200;
+  state.dragons = [createDragon(template('wyvern'), 0)];
+  const live = state.dragons[0];
+  state.rhythm = {
+    round: 0,
+    nodeIndex: 0,
+    roundLength: 1,
+    lastTriggeredIndex: null,
+    nodes: [{ id: 'test-departure', type: 'normal', triggered: false }],
+  };
+
+  await manager.executeTurn();
+
+  expect(state.dragonGrowthRound).toBe(2);
+  expect(live).toMatchObject({ attack: 5, hp: 15, maxHp: 15 });
+
+  const originalUnlocks = DRAGON_TEMPLATES.map(dragon => ({ id: dragon.id, unlockTurn: dragon.unlockTurn }));
+  const originalRandom = Math.random;
+  try {
+    for (const dragon of DRAGON_TEMPLATES) {
+      dragon.unlockTurn = dragon.id === 'wyvern' ? 1 : 999;
+    }
+    Math.random = () => 0;
+    state.dragons = [];
+    (manager as any).spawnDragonsByTurn();
+    expect(state.aliveDragons[0]).toMatchObject({ attack: 8, hp: 21, maxHp: 21 });
+  } finally {
+    Math.random = originalRandom;
+    for (const { id, unlockTurn } of originalUnlocks) {
+      const dragon = DRAGON_TEMPLATES.find(candidate => candidate.id === id);
+      if (dragon) dragon.unlockTurn = unlockTurn;
+    }
+  }
 });
 
 test('rhythm event node grants gold or opens a chest', () => {
@@ -482,6 +545,16 @@ test('assassin is cheap, gains night attack, and destroys itself after attacking
 test('dragon spear gains damage from empty sectors before attacking and skips remaining dragons when it kills', async () => {
   const state = new GameState();
   state.board.setSector(0, createBlock(BlockType.DRAGON_SPEAR, 15, 5));
+  state.rhythm = {
+    round: 0,
+    nodeIndex: 0,
+    roundLength: 2,
+    lastTriggeredIndex: null,
+    nodes: [
+      { id: 'test-normal', type: 'normal', triggered: false },
+      { id: 'test-departure', type: 'departure', triggered: false },
+    ],
+  };
   const ignis = createDragon(template('ignis'), 0);
   const aurus = createDragon(template('aurus'), 2);
   state.dragons = [ignis, aurus];
@@ -576,6 +649,9 @@ test('random shop excludes base items, supports locking, refresh cost growth, an
   expect(visible.map(item => item.id)).not.toContain('block:wood_wall');
   expect(visible.map(item => item.id)).not.toContain('block:mine');
   expect(visible.map(item => item.id)).not.toContain('spell:missile');
+  expect(SHOP_ITEM_POOL.map(item => item.id)).not.toContain('block:power_stone');
+  expect(SHOP_ITEM_POOL.map(item => item.id)).not.toContain('block:dragon_fire');
+  expect(BLOCK_TYPE_TABLE[BlockType.DRAGON_FIRE]).toMatchObject({ label: '龙焰', purchasable: false });
 
   const first = shop.state.random[0].item;
   expect(shop.toggleRandomLock(0)).toMatchObject({ ok: true });

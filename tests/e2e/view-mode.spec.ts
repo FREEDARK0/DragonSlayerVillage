@@ -37,6 +37,7 @@ type Snapshot = {
   rotationAngle: number;
   turnRotationSteps: number;
   boardTooltipVisible: boolean;
+  boardTooltipLines: string[];
   rotationControls: {
     clockwise: SlotLayout;
     counterclockwise: SlotLayout;
@@ -53,6 +54,8 @@ type Snapshot = {
   rhythmTooltipVisible: boolean;
   rhythmTooltipLines: string[];
   turnHintVisible: boolean;
+  phaseAnnouncementVisible: boolean;
+  phaseAnnouncementText: string;
 };
 
 type ShopBlockSnapshotItem = {
@@ -106,6 +109,11 @@ function emptySectorPoint(state: Snapshot): { x: number; y: number; sector: numb
 function occupiedSectorPoint(state: Snapshot): { x: number; y: number; sector: number } {
   const sector = state.board.findIndex(block => block !== null);
   if (sector < 0) throw new Error('No occupied sector available');
+  return sectorPoint(state, sector);
+}
+
+function ruleSectorPoint(state: Snapshot, ruleNumber: number): { x: number; y: number; sector: number } {
+  const sector = (5 + ruleNumber - 1) % 8;
   return sectorPoint(state, sector);
 }
 
@@ -173,6 +181,15 @@ test('hovering board sectors directly shows and hides tooltips', async ({ page }
   await expect.poll(async () => (await snapshot(page)).boardTooltipVisible).toBe(false);
 });
 
+test('board tooltip uses rule sector numbering from the upper-right sector', async ({ page }) => {
+  const state = await snapshot(page);
+  const sector = ruleSectorPoint(state, 1);
+
+  await page.mouse.move(sector.x, sector.y);
+
+  await expect.poll(async () => (await snapshot(page)).boardTooltipLines).toContain('扇区: 1');
+});
+
 test('rotation buttons rotate clockwise and counterclockwise by one step', async ({ page }) => {
   const before = await snapshot(page);
   await page.mouse.click(before.rotationControls.clockwise.centerX, before.rotationControls.clockwise.centerY);
@@ -238,6 +255,19 @@ test('rhythm nodes are shown below rotation controls and advance once per confir
   const after = await snapshot(page);
   expect(after.rhythm?.nodeIndex).toBe(1);
   expect(after.rhythm?.nodes[0].triggered).toBe(true);
+});
+
+test('dragon growth announcement appears after completing a rhythm round', async ({ page }) => {
+  await page.evaluate(() => (window as any).__dragonSlayerGame.prepareDragonGrowthAnnouncementTest());
+  const state = await snapshot(page);
+
+  await page.mouse.click(state.screen.octagonCenterX, state.screen.octagonCenterY);
+  await expect.poll(async () => {
+    const current = await snapshot(page);
+    return current.phaseAnnouncementVisible ? current.phaseAnnouncementText : '';
+  }).toBe('龙龙变得更强了');
+  await expect.poll(async () => (await snapshot(page)).turnNumber).toBeGreaterThan(state.turnNumber);
+  await expect.poll(async () => (await snapshot(page)).phaseAnnouncementVisible, { timeout: 3000 }).toBe(false);
 });
 
 test('rhythm node hover shows descriptions for node types', async ({ page }) => {

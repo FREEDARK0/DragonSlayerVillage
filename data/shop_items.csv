@@ -1,0 +1,28 @@
+id,kind,blockType,spellType,label,cost,hp,attack,color,purchasable,baseShop,randomShop,tags,description
+block:wood_wall,block,wood_wall,,木墙,5,8,0,0x8b6914,true,true,false,基础,8 HP；0 攻击力；阻挡吐息
+block:mine,block,mine,,矿场,15,8,0,0x888855,true,true,false,基础,每回合获得 4 金币
+spell:missile,spell,,missile,飞弹,10,0,0,0x5f8dd3,true,true,false,基础|法术,对选择目标造成 5 点伤害；每个法师增加 1 次效果并附加攻击力
+block:ballista,block,ballista,,巨弩,10,8,5,0x888888,true,false,true,随机,每回合若未攻击，+5 临时攻击力；攻击后移除已积累的临时攻击力
+block:pressure_stone,block,pressure_stone,,压力石,15,0,0,0x6644aa,true,false,true,随机,放置时获得本扇区及左右相邻扇区所有龙当前 HP 总和的 1/4（向下取整）
+block:guardian,block,guardian,,卫士,20,10,0,0xffddaa,true,false,true,随机,攻击力始终与 HP 相同
+block:portal,block,portal,,通道,20,30,0,0x8844cc,true,false,true,随机,被吐息命中时，对侧扇区可攻击友方会反击该龙；自身受到伤害正常计算
+block:spikes,block,spikes,,地刺,10,15,2,0xaaaaaa,true,false,true,随机,有任意龙进入/离开此扇区时，地刺会攻击它
+block:tavern,block,tavern,,酒馆,20,10,0,0xcc8844,true,false,true,随机,白天每回合 +2 金币；黑夜每回合 +6 金币
+block:smithy,block,smithy,,铁匠铺,25,10,1,0xa86832,true,false,true,随机,相邻扇区放置建筑/单位时，使其获得铁匠铺当前攻击力，并使铁匠铺 +1 攻击力
+block:assassin,block,assassin,,刺客,10,8,0,0x333333,true,false,true,随机,黑夜时 +35 攻击力；攻击 1 次后销毁自身
+block:bellows,block,bellows,,风箱,20,10,0,0x7799aa,true,false,true,随机,受击后，将攻击者沿顺时针方向逐格移动 3 格
+block:sensing_wall,block,sensing_wall,,感应石墙,30,40,0,0x4aa6aa,true,false,true,随机,任意空地即将被攻击时，自动移动到该空地抵挡；最多只能同时存在 1 个
+block:dragon_spear,block,dragon_spear,,龙枪,30,15,5,0xb83c2e,true,false,true,随机,每次攻击前，每有 1 个空地获得 10 临时攻击力；若攻击击杀任意龙，本轮剩余龙行动全部跳过
+block:knight,block,knight,,骑士,25,20,10,0x4488ff,true,false,true,随机,每次攻击前，本回合每旋转 1 扇区获得 +2/+2（临时）
+block:mage,block,mage,,法师,40,8,1,0xaa44ff,true,false,true,随机,所有法术伤害附加自身攻击力；飞弹增加 1 次效果，可叠加；每回合 +1 攻击力
+block:wizard,block,wizard,,巫师,25,8,0,0x6b4bc2,true,false,true,随机,死亡时在随机空位召唤记录击杀者的巫毒娃娃；巫毒娃娃受到的伤害也会作用于记录目标
+block:infantry,block,infantry,,步兵,15,10,5,0x4f8c5a,true,false,true,随机,两边相邻扇区的友方攻击时，自身也对其目标攻击 1 次
+spell:focus_defense,spell,,focus_defense,集中防御,20,0,0,0x5f8dd3,true,false,true,随机|法术,指定友方，吸收左右相邻友方各一半 HP
+spell:focus_breakthrough,spell,,focus_breakthrough,集中突破,25,0,0,0x5f8dd3,true,false,true,随机|法术,指定友方，吸收左右相邻友方各一半攻击力
+spell:sacrifice,spell,,sacrifice,献祭,20,0,0,0x5f8dd3,true,false,true,随机|法术,摧毁指定友方，将其一半 HP/攻击传递给随机友方
+spell:bulwark,spell,,bulwark,壁垒,15,0,0,0x5f8dd3,true,false,true,随机|法术,所有攻击力为 0 的友方 +5 HP
+spell:shield_crush,spell,,shield_crush,盾牌碾压,25,0,0,0x5f8dd3,true,false,true,随机|法术,摧毁攻击力为 0 的友方，对其扇区敌人造成其 HP 的伤害
+block:power_stone,block,power_stone,,金矿,0,5,0,0xffaa00,false,false,false,,生成时随机获得 1-20 HP；受击时获得损失 HP 等量金币
+block:voodoo,block,voodoo,,巫毒娃娃,0,20,0,0x888888,false,false,false,,每回合顺时针移动 1 格；会被友方效果判定为敌人；受到伤害会传递给记录目标
+block:dragon_fire,block,dragon_fire,,龙焰,0,10,0,0xff5522,false,false,false,,每回合对村庄造成等同 HP 的伤害；建筑/单位放到龙焰上会改为削减龙焰 HP
+block:weakness,block,weakness,,弱点,0,0,0,0xff3333,false,false,false,,暂无效果
