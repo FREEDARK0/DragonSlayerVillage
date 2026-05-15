@@ -1,14 +1,16 @@
 import { GameState, TurnState } from './GameState';
 import { SpawnSystem, buildRespawnPools } from '../systems/SpawnSystem';
 import { DragonAI, highestAttackFriendlySector, nearestFreeEdge } from '../ai/DragonAI';
-import { createDragon, markDragonDeparted, resetDragonForSpawn, DragonState } from '../models/Dragon';
+import { createDragon, resetDragonForSpawn, DragonState } from '../models/Dragon';
 import { getAvailableDragons, DragonPersonalityType } from '../config/dragonTypes';
 import { EventBus } from './EventBus';
 import { weightedPick } from '../utils/random';
 import { createEffectContext } from '../effects/EffectContext';
 import { calculateVillageIncome, runBlockTurnEnd, runBlockTurnStart, runFriendlyAttacks } from '../effects/BlockEffectRegistry';
 import { DragonTemplate } from '../config/dragonTypes';
-import { dragonBehaviorHasExplicitLeaveCondition } from '../effects/DragonBehaviorRegistry';
+import { RhythmSystem } from '../systems/RhythmSystem';
+
+const RHYTHM_NODE_ANIMATION_MS = 430;
 
 function getMaxDragons(turn: number): number {
   if (turn <= 3) return 2;
@@ -20,6 +22,7 @@ function getMaxDragons(turn: number): number {
 export class TurnManager {
   private spawnSystem = new SpawnSystem();
   private dragonAI = new DragonAI();
+  private rhythmSystem = new RhythmSystem();
   onTurnStarted: (() => void) | null = null;
 
   constructor(private state: GameState) {}
@@ -27,6 +30,7 @@ export class TurnManager {
   initWorld(): void {
     const villageSector = this.spawnSystem.initMap(this.state.board);
     this.state.hero.heroSector = villageSector;
+    this.state.rhythm = this.rhythmSystem.createInitialState();
   }
 
   async executeTurn(): Promise<void> {
@@ -56,13 +60,17 @@ export class TurnManager {
     if (this.state.turnNumber > 0 && this.state.turnNumber % 30 === 0) this.state.year++;
 
     const nextNight = this.previewNextNightState();
-    await this.handleDefaultNightDepartures(nextNight);
     this.state.nightStart = nextNight.start;
     this.state.nightLength = nextNight.length;
     this.state.nightGrowing = nextNight.growing;
 
     for (const d of this.state.aliveDragons) d.turnCounter++;
     runBlockTurnEnd(ctx);
+    const rhythmResult = this.rhythmSystem.advance(this.state);
+    if (rhythmResult.completedRound) {
+      await waitForTurnAnimation(RHYTHM_NODE_ANIMATION_MS);
+      this.rhythmSystem.startNextRound(this.state);
+    }
     this.state.skipRemainingDragonActions = false;
     this.state.turnNumber++;
     this.state.turnRotationSteps = 0;
@@ -144,28 +152,6 @@ export class TurnManager {
     return { start, length, growing };
   }
 
-  private async handleDefaultNightDepartures(nextNight: { start: number; length: number }): Promise<void> {
-    const departing = this.state.aliveDragons.filter(dragon => {
-      if (dragonBehaviorHasExplicitLeaveCondition(dragon.personality)) return false;
-      if (sectorInNight(dragon.edgeIndex, this.state.nightStart, this.state.nightLength)) return false;
-      return sectorInNight(dragon.edgeIndex, nextNight.start, nextNight.length);
-    });
-    if (departing.length === 0) return;
-
-    for (const dragon of departing) {
-      this.state.addMessage(`${dragon.name}离开`);
-      EventBus.emit('dragonDeparting', { dragonId: dragon.id, name: dragon.name });
-    }
-    await waitForTurnAnimation(260);
-    for (const dragon of departing) markDragonDeparted(dragon);
-  }
-}
-
-function sectorInNight(sector: number, start: number, length: number): boolean {
-  for (let i = 0; i < length; i++) {
-    if ((start + i) % 8 === sector) return true;
-  }
-  return false;
 }
 
 function waitForTurnAnimation(ms: number): Promise<void> {

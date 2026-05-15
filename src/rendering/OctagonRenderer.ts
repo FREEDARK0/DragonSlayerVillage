@@ -46,17 +46,15 @@ export class OctagonRenderer {
         wg.fill({ color: 0x000000, alpha: 0.5 });
       }
     }
-    for (let i = 0; i < 8; i++) {
-      const a = sectorStartAngle(i, 0);
-      wg.moveTo(cx + Math.cos(a) * outerR, cy + Math.sin(a) * outerR);
-      wg.lineTo(cx + Math.cos(a) * farR, cy + Math.sin(a) * farR);
-      wg.stroke({ width: 1, color: 0x334466, alpha: 0.5 });
-    }
     this.wedgeContainer.addChild(wg);
 
     const islandShadow = new Graphics();
-    islandShadow.circle(cx + 8, cy + 12, outerR * 1.05);
-    islandShadow.fill({ color: 0x28566c, alpha: 0.2 });
+    islandShadow.circle(cx, cy + outerR * 0.04, outerR * 1.04);
+    islandShadow.fill({ color: 0x1c4b5b, alpha: 0.1 });
+    islandShadow.circle(cx, cy + outerR * 0.035, outerR * 0.96);
+    islandShadow.fill({ color: 0x163d4a, alpha: 0.12 });
+    islandShadow.circle(cx, cy + outerR * 0.025, outerR * 0.86);
+    islandShadow.fill({ color: 0x10313d, alpha: 0.12 });
     this.container.addChild(islandShadow);
 
     for (let i = 0; i < SECTOR_COUNT; i++) {

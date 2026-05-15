@@ -3,45 +3,43 @@ import { GameRenderer } from '../rendering/GameRenderer';
 
 export class HUD {
   private container: Container;
+  private turnBg: Graphics;
   private turnText: Text;
-  private yearText: Text;
-  private phaseText: Text;
-  private hpText: Text;
-  private goldText: Text;
 
   constructor(private renderer: GameRenderer) {
     this.container = new Container();
     this.container.label = 'HUD';
     renderer.getLayer(6).addChild(this.container);
-    const w = this.renderer.screenW;
 
-    const topBar = new Graphics();
-    topBar.roundRect(10, 8, w - 20, 30, 6);
-    topBar.fill({ color: 0x24445a, alpha: 0.72 });
-    topBar.stroke({ width: 1, color: 0xf1cf86, alpha: 0.7 });
-    this.container.addChild(topBar);
+    this.turnBg = new Graphics();
+    this.turnBg.eventMode = 'none';
+    this.container.addChild(this.turnBg);
 
-    this.yearText = new Text({ text: '第 1 年', style: { fontFamily: 'Arial', fontSize: 14, fill: 0xffcc44, fontWeight: 'bold' } });
-    this.yearText.position.set(20, 15); this.container.addChild(this.yearText);
-
-    this.phaseText = new Text({ text: '初期', style: { fontFamily: 'Arial', fontSize: 14, fill: 0x88ff88 } });
-    this.phaseText.position.set(110, 15); this.container.addChild(this.phaseText);
-
-    this.hpText = new Text({ text: 'HP: 50', style: { fontFamily: 'Arial', fontSize: 14, fill: 0xffd0d0, fontWeight: 'bold' } });
-    this.hpText.position.set(210, 15); this.container.addChild(this.hpText);
-
-    this.goldText = new Text({ text: '金币: 10', style: { fontFamily: 'Arial', fontSize: 14, fill: 0xffe08a, fontWeight: 'bold' } });
-    this.goldText.position.set(300, 15); this.container.addChild(this.goldText);
-
-    this.turnText = new Text({ text: '回合: 0', style: { fontFamily: 'Arial', fontSize: 12, fill: 0xdddddd } });
-    this.turnText.position.set(w - 150, 16); this.container.addChild(this.turnText);
+    this.turnText = new Text({
+      text: '回合 0',
+      style: {
+        fontFamily: 'Arial',
+        fontSize: 15,
+        fill: 0xf2fbff,
+        fontWeight: 'bold',
+        stroke: { color: 0x10202a, width: 3 },
+      },
+    });
+    this.turnText.anchor.set(0, 0.5);
+    this.turnText.eventMode = 'none';
+    this.container.addChild(this.turnText);
   }
 
-  update(villageHp: number, villageGold: number, turnNumber: number, year: number, _phase: string, _messages: string[], _rotDeg: number = 0): void {
-    this.turnText.text = `回合: ${turnNumber}`;
-    this.yearText.text = `第 ${year} 年`;
-    this.phaseText.text = turnNumber <= 3 ? '初期' : turnNumber <= 10 ? '发展期' : '高潮期';
-    this.hpText.text = `HP: ${villageHp}`;
-    this.goldText.text = `金币: ${villageGold}`;
+  update(_villageHp: number, _villageGold: number, turnNumber: number, _year: number, _phase: string, _messages: string[], _rotDeg: number = 0): void {
+    this.turnText.text = `回合 ${turnNumber}`;
+    const x = 18;
+    const y = Math.max(44, this.renderer.screenH - 42);
+    const width = Math.max(86, this.turnText.width + 24);
+    const height = 30;
+    this.turnBg.clear();
+    this.turnBg.roundRect(x - 10, y - height / 2, width, height, 7);
+    this.turnBg.fill({ color: 0x1d3342, alpha: 0.78 });
+    this.turnBg.stroke({ width: 1.5, color: 0x8fd0dc, alpha: 0.72 });
+    this.turnText.position.set(x, y);
   }
 }

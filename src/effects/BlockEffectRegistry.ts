@@ -1,4 +1,5 @@
 import { BLOCK_TYPE_TABLE, BlockType } from '../config/blockTypes';
+import { EventBus } from '../core/EventBus';
 import { BlockData, createBlock, createDragonFire, createPowerStone, createVoodooDoll } from '../models/Block';
 import { DragonState, dragonTakeDamage, markDragonDefeated } from '../models/Dragon';
 import { EffectContext, IncomeEffectContext } from './EffectContext';
@@ -151,6 +152,10 @@ export function damageBlockInContext(block: BlockData, sector: number, damage: n
   if (block.type === BlockType.POWER_STONE && lostHp > 0) {
     ctx.state.applyVillageGoldDelta(lostHp);
     ctx.addMessage(`金矿受击，金币 +${lostHp}`);
+  }
+
+  if (lostHp > 0) {
+    EventBus.emit('blockDamaged', { sector, blockType: block.type, damage: lostHp, hp: block.hp });
   }
 
   if (block.type === BlockType.VOODOO && block.targetDragonId && lostHp > 0) {

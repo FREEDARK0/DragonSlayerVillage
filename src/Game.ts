@@ -3,11 +3,15 @@ import { OctagonRenderer } from './rendering/OctagonRenderer';
 import { BlockRenderer } from './rendering/BlockRenderer';
 import { DragonRenderer } from './rendering/DragonRenderer';
 import { EffectRenderer } from './rendering/EffectRenderer';
+import { AudioSystem } from './audio/AudioSystem';
 import { HUD } from './ui/HUD';
 import { DragonInfoPanel } from './ui/DragonInfoPanel';
 import { PhaseAnnouncement } from './ui/PhaseAnnouncement';
 import { GameOverScreen } from './ui/GameOverScreen';
 import { ShopPanel } from './ui/ShopPanel';
+import { RotationControls } from './ui/RotationControls';
+import { RhythmBar } from './ui/RhythmBar';
+import { TurnHint } from './ui/TurnHint';
 import { HoverSectorInfo, InputManager } from './input/InputManager';
 import { GameState, TurnState } from './core/GameState';
 import { TurnManager } from './core/TurnManager';
@@ -37,18 +41,25 @@ export class Game {
   private phaseAnnouncement!: PhaseAnnouncement;
   private gameOverScreen!: GameOverScreen;
   private shopPanel!: ShopPanel;
+  private rotationControls!: RotationControls;
+  private rhythmBar!: RhythmBar;
+  private turnHint!: TurnHint;
   private boardTooltip!: TooltipPanel;
   private inputManager!: InputManager;
+  private audioSystem!: AudioSystem;
   private state!: GameState;
   private turnManager!: TurnManager;
   private shopSystem = new ShopSystem();
-  private isViewMode = false;
   private sessionId = 0;
+  private previousSectorStats: Map<number, { attack: number; hp: number }> = new Map();
+  private previousDragonStats: Map<string, { attack: number; hp: number }> = new Map();
 
   constructor() { this.renderer = new GameRenderer(); }
 
   async init(): Promise<void> {
     await this.renderer.init();
+    this.audioSystem = new AudioSystem();
+    await this.audioSystem.init();
     this.octagonRenderer = new OctagonRenderer(this.renderer);
     this.blockRenderer = new BlockRenderer(this.renderer);
     this.dragonRenderer = new DragonRenderer(this.renderer);
@@ -58,39 +69,45 @@ export class Game {
     this.phaseAnnouncement = new PhaseAnnouncement(this.renderer);
     this.gameOverScreen = new GameOverScreen(this.renderer);
     this.shopPanel = new ShopPanel(this.renderer);
+    this.rotationControls = new RotationControls(this.renderer);
+    this.rhythmBar = new RhythmBar(this.renderer);
+    this.turnHint = new TurnHint(this.renderer);
     this.boardTooltip = new TooltipPanel(this.renderer, 'BoardTooltip');
     this.inputManager = new InputManager();
-    this.inputManager.canToggleViewMode((nextMode) => this.canToggleViewMode(nextMode));
-    this.inputManager.onViewModeChanged((enabled) => this.applyViewMode(enabled));
     this.inputManager.onHoverSectorChanged((info) => this.updateBoardTooltip(info));
     this.shopPanel.onUiPointerActivity = (event) => this.inputManager.suppressCurrentGesture(event);
+    this.shopPanel.onItemClicked = (event) => {
+      this.audioSystem.playClick();
+      this.inputManager.suppressCurrentGesture(event);
+    };
+    this.rotationControls.onUiPointerActivity = (event) => this.inputManager.suppressCurrentGesture(event);
     this.shopPanel.onSectionItemSelected = (section, index) => {
-      if (this.isViewMode) return;
       const result = this.shopSystem.beginPlacementFromSection(section, index, this.state.board.villageGold);
       const finalResult = this.resolveImmediateShopSelection(result);
       this.state.addMessage(finalResult.message);
       this.drawShop();
+      this.drawRotationControls();
       this.renderAll();
     };
     this.shopPanel.onRandomLockToggled = (index) => {
-      if (this.isViewMode) return;
       const result = this.shopSystem.toggleRandomLock(index);
       this.state.addMessage(result.message);
       this.drawShop();
       this.renderAll();
     };
     this.shopPanel.onRefreshClicked = () => {
-      if (this.isViewMode) return;
       const result = this.shopSystem.refreshRandom(this.state);
       this.state.addMessage(result.message);
       this.drawShop();
       this.renderAll();
     };
+    this.rotationControls.onRotate = (delta) => this.rotateBoardByButton(delta);
     this.setupEvents();
+    await this.dragonRenderer.preloadAssets();
+    this.startGame();
     window.__dragonSlayerGame = {
       getSnapshot: () => this.getSnapshot(),
     };
-    this.startGame();
     const animate = () => {
       this.effectRenderer.update();
       if (this.effectRenderer.hasActiveBoardAnimations()) this.renderAll();
@@ -105,15 +122,18 @@ export class Game {
     this.turnManager = new TurnManager(this.state);
     this.turnManager.onTurnStarted = () => this.shopSystem.beginNewTurn();
     this.shopSystem.reset();
-    this.isViewMode = false;
-    this.inputManager.setViewMode(false, true);
+    this.previousSectorStats.clear();
+    this.previousDragonStats.clear();
     this.boardTooltip.hide();
+    this.inputManager.resetGestureState();
     this.updateCanvasCursor();
     this.turnManager.initWorld();
+    this.audioSystem.restartBgm();
     this.dragonRenderer.clear();
     this.effectRenderer.clear();
     this.gameOverScreen.hide();
     this.drawShop();
+    this.drawRotationControls();
     this.renderAll();
     this.enableInput();
   }
@@ -125,14 +145,18 @@ export class Game {
     EventBus.on('gameOver', (payload: { reason: string }) => {
       this.state.gameOver = true;
       this.state.gameOverReason = payload.reason;
-      this.inputManager.setViewMode(false, true);
       this.boardTooltip.hide();
       this.updateCanvasCursor();
       this.inputManager.disable(this.renderer.app.canvas as HTMLCanvasElement);
-      this.gameOverScreen.show(this.state.turnNumber, this.state.year, payload.reason, () => this.startGame());
+      this.drawRotationControls();
+      this.gameOverScreen.show(this.state.turnNumber, this.state.year, payload.reason, (event) => {
+        this.startGame();
+        this.inputManager.suppressCurrentGesture(event);
+      });
     });
     EventBus.on('dragonAttackStarted', (payload: { dragonId: string; sectors: number[]; actionType: string }) => {
       if (payload.actionType === 'summon_imp') return;
+      this.audioSystem.playDragonBreath();
       this.dragonRenderer.animateAttack(payload.dragonId);
       this.effectRenderer.triggerScreenFlash(0xff7744, 8);
     });
@@ -147,9 +171,16 @@ export class Game {
       this.showBreathHitFeedback(payload.hits);
     });
     EventBus.on('dragonDamaged', (payload: { dragonId: string; damage: number }) => {
+      this.audioSystem.playHit();
       this.dragonRenderer.animateHit(payload.dragonId);
       const pos = this.dragonRenderer.getDragonScreenPosition(payload.dragonId);
       if (pos) this.effectRenderer.showFloatingTextAt(pos.x, pos.y - 20, `-${payload.damage}`, 0xfff0aa);
+    });
+    EventBus.on('blockDamaged', () => {
+      this.audioSystem.playHit();
+    });
+    EventBus.on('villageDamaged', () => {
+      this.audioSystem.playHit();
     });
     EventBus.on('dragonDeparting', (payload: { dragonId: string; name: string }) => {
       const pos = this.dragonRenderer.getDragonScreenPosition(payload.dragonId);
@@ -159,6 +190,16 @@ export class Game {
     EventBus.on('blockDestroyed', (payload: { sector: number }) => {
       this.effectRenderer.startShrink(payload.sector);
       this.effectRenderer.showFloatingText(payload.sector, 'X', 0xff6666);
+    });
+    EventBus.on('blockCreated', (payload: { sector: number }) => {
+      this.effectRenderer.startGrow(payload.sector);
+    });
+    EventBus.on('blockPlaced', () => {
+      this.audioSystem.playBuild();
+    });
+    EventBus.on('rhythmNodeTriggered', (payload: { index: number }) => {
+      this.effectRenderer.startRhythmBounce(payload.index);
+      this.renderAll();
     });
   }
 
@@ -177,23 +218,15 @@ export class Game {
     const canvas = this.renderer.app.canvas as HTMLCanvasElement;
     this.inputManager.setRotationAngle(this.state.rotationAngle);
     this.inputManager.enable(canvas, this.renderer.octagonCenterX, this.renderer.octagonCenterY, this.renderer.octagonRadius);
-    this.inputManager.onRotate((delta) => {
-      if (this.state.turnState !== TurnState.WAITING_FOR_INPUT) return;
-      if (this.shopSystem.selectedItem()) return;
-      this.state.rotationAngle = ((this.state.rotationAngle + delta) % 360 + 360) % 360;
-      this.inputManager.setRotationAngle(this.state.rotationAngle);
-      this.state.turnRotationSteps += delta / 45;
-      this.renderAll();
-    });
     this.inputManager.onConfirm(() => {
       if (this.state.gameOver) return;
-      if (this.isViewMode) return;
 
       if (this.shopSystem.selectedItem()) {
         if (this.inputManager.isCurrentPointerOutsideOctagon()) {
           this.shopSystem.cancelPlacement();
           this.state.addMessage('已取消购买');
           this.drawShop();
+          this.drawRotationControls();
           this.renderAll();
           return;
         }
@@ -201,6 +234,7 @@ export class Game {
         const result = this.shopSystem.tryPlaceSelectedItem(this.state, sector);
         this.state.addMessage(result.message);
         this.drawShop();
+        this.drawRotationControls();
         this.renderAll();
         return;
       }
@@ -216,6 +250,7 @@ export class Game {
     await this.turnManager.executeTurn();
     if (currentSession !== this.sessionId) return;
     this.drawShop();
+    this.drawRotationControls();
     this.renderAll();
     if (!this.state.gameOver) {
       this.enableInput();
@@ -224,37 +259,80 @@ export class Game {
   }
 
   private renderAll(): void {
+    const effectContext = createEffectContext(this.state);
+    this.updateStatChangeAnimations(effectContext);
     this.octagonRenderer.render(this.state.board, this.state.hero.heroSector, this.state.rotationAngle, this.state.nightStart, this.state.nightLength, this.effectRenderer.powerAnims.get('village'));
-    this.blockRenderer.render(this.state.board, this.effectRenderer.blockAnims, this.state.rotationAngle, this.effectRenderer.powerAnims);
-    this.dragonRenderer.render(this.state.aliveDragons, this.state.rotationAngle, this.state.nightStart, this.state.nightLength);
+    this.blockRenderer.render(this.state.board, this.effectRenderer.blockAnims, this.state.rotationAngle, this.effectRenderer.powerAnims, effectContext);
+    this.dragonRenderer.render(this.state.aliveDragons, this.state.rotationAngle, this.state.nightStart, this.state.nightLength, this.effectRenderer.powerAnims);
     this.hud.update(this.state.board.villageHp, this.state.board.villageGold, this.state.turnNumber, this.state.year, 'calm' as any, this.state.messages, this.state.rotationAngle);
+    this.rhythmBar.draw(this.state.rhythm, this.effectRenderer.powerAnims);
+    this.turnHint.draw(this.shouldShowTurnHint());
+  }
+
+  private updateStatChangeAnimations(effectContext: ReturnType<typeof createEffectContext>): void {
+    const nextSectorStats = new Map<number, { attack: number; hp: number }>();
+    for (let sector = 0; sector < this.state.board.sectors.length; sector++) {
+      const block = this.state.board.getSector(sector);
+      if (!block) continue;
+      const attack = getBlockAttack(block, effectContext, sector);
+      const hp = block.hp;
+      const previous = this.previousSectorStats.get(sector);
+      if (previous) {
+        if (previous.attack !== attack) this.effectRenderer.startStatBounce(`sector:${sector}:attack`);
+        if (previous.hp !== hp) this.effectRenderer.startStatBounce(`sector:${sector}:hp`);
+      }
+      nextSectorStats.set(sector, { attack, hp });
+    }
+    this.previousSectorStats = nextSectorStats;
+
+    const nextDragonStats = new Map<string, { attack: number; hp: number }>();
+    for (const dragon of this.state.aliveDragons) {
+      const previous = this.previousDragonStats.get(dragon.id);
+      if (previous) {
+        if (previous.attack !== dragon.attack) this.effectRenderer.startStatBounce(`dragon:${dragon.id}:attack`);
+        if (previous.hp !== dragon.hp) this.effectRenderer.startStatBounce(`dragon:${dragon.id}:hp`);
+      }
+      nextDragonStats.set(dragon.id, { attack: dragon.attack, hp: dragon.hp });
+    }
+    this.previousDragonStats = nextDragonStats;
   }
 
   private drawShop(): void {
-    this.shopPanel.draw(this.shopSystem.state, this.shopSystem.selectedItem(), this.isViewMode);
+    this.shopPanel.draw(this.shopSystem.state, this.shopSystem.selectedItem(), false, this.state.board.villageGold);
   }
 
-  private canToggleViewMode(nextMode: boolean): boolean {
-    if (!nextMode) return true;
-    return !this.shopSystem.selectedItem();
+  private drawRotationControls(): void {
+    const disabled = this.state.gameOver
+      || this.state.turnState !== TurnState.WAITING_FOR_INPUT
+      || Boolean(this.shopSystem.selectedItem());
+    this.rotationControls.draw(disabled);
   }
 
-  private applyViewMode(enabled: boolean): void {
-    this.isViewMode = enabled;
-    this.updateCanvasCursor();
-    this.drawShop();
-    if (!enabled) this.boardTooltip.hide();
+  private shouldShowTurnHint(): boolean {
+    return !this.state.gameOver
+      && this.state.turnState === TurnState.WAITING_FOR_INPUT
+      && !this.shopSystem.selectedItem();
+  }
+
+  private rotateBoardByButton(delta: number): void {
+    if (this.state.gameOver) return;
+    if (this.state.turnState !== TurnState.WAITING_FOR_INPUT) return;
+    if (this.shopSystem.selectedItem()) return;
+    this.state.rotationAngle = ((this.state.rotationAngle + delta) % 360 + 360) % 360;
+    this.inputManager.setRotationAngle(this.state.rotationAngle);
+    this.state.turnRotationSteps += delta / 45;
+    this.renderAll();
   }
 
   private updateCanvasCursor(): void {
     if (!this.renderer.app) return;
     const canvas = this.renderer.app.canvas as HTMLCanvasElement;
-    canvas.style.cursor = this.isViewMode ? 'zoom-in' : '';
+    canvas.style.cursor = '';
   }
 
   private updateBoardTooltip(info: HoverSectorInfo): void {
     this.updateCanvasCursor();
-    if (!this.isViewMode || info.outsideOctagon || info.sector === null) {
+    if (info.outsideOctagon || info.sector === null) {
       this.boardTooltip.hide();
       return;
     }
@@ -316,6 +394,7 @@ export class Game {
         maxHp: dragon.maxHp,
         attack: dragon.attack,
         hasTakenDamage: dragon.hasTakenDamage,
+        assetName: this.dragonRenderer.getDragonAssetName(dragon),
         screen: this.dragonRenderer.getDragonScreenPosition(dragon.id),
       })),
       shop: {
@@ -337,10 +416,23 @@ export class Game {
         octagonRadius: this.renderer.octagonRadius,
       },
       gameOver: this.state.gameOver,
-      viewMode: this.isViewMode,
+      viewMode: false,
       rotationAngle: this.state.rotationAngle,
       turnRotationSteps: this.state.turnRotationSteps,
+      rotationControls: this.rotationControls.getLayoutSnapshot(),
+      rhythm: this.state.rhythm ? {
+        round: this.state.rhythm.round,
+        nodeIndex: this.state.rhythm.nodeIndex,
+        roundLength: this.state.rhythm.roundLength,
+        lastTriggeredIndex: this.state.rhythm.lastTriggeredIndex,
+        nodes: this.state.rhythm.nodes.map(node => ({ type: node.type, triggered: node.triggered, eventKind: node.eventKind })),
+      } : null,
+      rhythmBar: this.rhythmBar.getLayoutSnapshot(),
+      rhythmTooltipVisible: this.rhythmBar.isTooltipVisible(),
+      rhythmTooltipLines: this.rhythmBar.getTooltipLines(),
+      turnHintVisible: this.turnHint.isVisible(),
       dragonTooltipVisible: this.dragonRenderer.isTooltipVisible(),
+      dragonAssetNames: this.dragonRenderer.getTemplateAssetNames(),
       shopTooltipVisible: this.shopPanel.isTooltipVisible(),
       shopTooltipLines: this.shopPanel.getTooltipLines(),
       shopTooltipLayout: this.shopPanel.getTooltipLayout(),

@@ -18,6 +18,7 @@ import { InputManager } from '../../src/input/InputManager';
 import { createBlock, createPowerStone } from '../../src/models/Block';
 import { createDragon, dragonTakeDamage, markDragonDefeated } from '../../src/models/Dragon';
 import { ShopSystem } from '../../src/systems/ShopSystem';
+import { RhythmSystem, roundLengthFor } from '../../src/systems/RhythmSystem';
 
 function template(id: string): DragonTemplate {
   const found = DRAGON_TEMPLATES.find(dragon => dragon.id === id);
@@ -91,10 +92,138 @@ test('breath hit feedback advances from center in symmetric waves', () => {
   expect(buildSymmetricSectorWaves([6, 7, 0, 1, 2])).toEqual([[0], [7, 1], [6, 2]]);
 });
 
-test('input manager requires a substantial drag before rotating the board', () => {
+test('dragon actions start at the upper-right sector and continue clockwise', async () => {
+  const state = new GameState();
+  state.board.villageHp = 200;
+  const edges = [2, 7, 4, 0, 6, 1, 5, 3];
+  state.dragons = edges.map((edge, index) => createDragon(template(index % 2 === 0 ? 'aurus' : 'wyvern'), edge));
+
+  const decisions = await new DragonAI().executeTurn(state, 0);
+
+  expect(decisions.map(decision => decision.dragon.edgeIndex)).toEqual([5, 6, 7, 0, 1, 2, 3, 4]);
+});
+
+test('rhythm round lengths grow and each final node is departure', () => {
+  expect([0, 1, 2, 3, 4, 5, 8].map(roundLengthFor)).toEqual([5, 6, 7, 9, 15, 15, 15]);
+
+  const originalRandom = Math.random;
+  try {
+    Math.random = () => 0.1;
+    const system = new RhythmSystem();
+    const state = system.createInitialState();
+    expect(state).toMatchObject({ round: 0, nodeIndex: 0, roundLength: 5 });
+    expect(state.nodes).toHaveLength(5);
+    expect(state.nodes[state.nodes.length - 1]).toMatchObject({ type: 'departure', triggered: false });
+    expect(state.nodes.slice(0, -1).every(node => node.type === 'normal')).toBe(true);
+  } finally {
+    Math.random = originalRandom;
+  }
+});
+
+test('rhythm advances one node and completes rounds from left to right', () => {
+  const originalRandom = Math.random;
+  try {
+    Math.random = () => 0.1;
+    const system = new RhythmSystem();
+    const state = new GameState();
+    state.rhythm = system.createInitialState();
+
+    for (let i = 0; i < 4; i++) {
+      const result = system.advance(state);
+      expect(result.index).toBe(i);
+      expect(result.completedRound).toBe(false);
+      expect(state.rhythm?.round).toBe(0);
+      expect(state.rhythm?.nodeIndex).toBe(i + 1);
+      expect(state.rhythm?.nodes[i].triggered).toBe(true);
+    }
+
+    const result = system.advance(state);
+    expect(result.index).toBe(4);
+    expect(result.node.type).toBe('departure');
+    expect(result.completedRound).toBe(true);
+    expect(state.rhythm).toMatchObject({ round: 0, nodeIndex: 4, roundLength: 5 });
+    expect(state.rhythm?.nodes[4].triggered).toBe(true);
+
+    system.startNextRound(state);
+    expect(state.rhythm).toMatchObject({ round: 1, nodeIndex: 0, roundLength: 6 });
+    expect(state.rhythm?.nodes).toHaveLength(6);
+    expect(state.rhythm?.nodes[5].type).toBe('departure');
+  } finally {
+    Math.random = originalRandom;
+  }
+});
+
+test('rhythm departure node makes all live dragons leave but night growth does not', async () => {
+  const state = new GameState();
+  state.board.villageHp = 200;
+  state.nightStart = 4;
+  state.nightLength = 2;
+  state.nightGrowing = true;
+  const wyvern = createDragon(template('wyvern'), 0);
+  state.dragons = [wyvern];
+
+  await new TurnManager(state).executeTurn();
+
+  expect(wyvern.isAlive).toBe(true);
+
+  const system = new RhythmSystem();
+  state.rhythm = {
+    round: 0,
+    nodeIndex: 0,
+    roundLength: 1,
+    lastTriggeredIndex: null,
+    nodes: [{ id: 'test-departure', type: 'departure', triggered: false }],
+  };
+
+  const ignis = createDragon(template('ignis'), 2);
+  state.dragons.push(ignis);
+  system.advance(state);
+
+  expect(state.aliveDragons).toHaveLength(0);
+  expect(wyvern.respawnAvailableTurn).toBeNull();
+  expect(ignis.respawnAvailableTurn).toBeNull();
+});
+
+test('rhythm event node grants gold or opens a chest', () => {
+  const originalRandom = Math.random;
+  try {
+    const system = new RhythmSystem();
+    const goldState = new GameState();
+    goldState.board.villageGold = 10;
+    goldState.rhythm = {
+      round: 0,
+      nodeIndex: 0,
+      roundLength: 1,
+      lastTriggeredIndex: null,
+      nodes: [{ id: 'event-gold', type: 'event', triggered: false }],
+    };
+    Math.random = () => 0;
+    const goldResult = system.advance(goldState);
+    expect(goldState.board.villageGold).toBe(20);
+    expect(goldResult.node.eventKind).toBe('gold');
+
+    const chestState = new GameState();
+    chestState.rhythm = {
+      round: 0,
+      nodeIndex: 0,
+      roundLength: 1,
+      lastTriggeredIndex: null,
+      nodes: [{ id: 'event-chest', type: 'event', triggered: false }],
+    };
+    Math.random = () => 0.6;
+    const chestResult = system.advance(chestState);
+    expect(chestResult.node.eventKind).toBe('chest');
+    expect(chestState.board.sectors.filter(Boolean)).toHaveLength(1);
+    expect(chestState.board.sectors.some(block => block?.type === BlockType.POWER_STONE)).toBe(true);
+  } finally {
+    Math.random = originalRandom;
+  }
+});
+
+test('input manager ignores drag rotation gestures', () => {
   const manager = new InputManager() as any;
-  const rotations: number[] = [];
-  manager.onRotate((delta: number) => rotations.push(delta));
+  let confirms = 0;
+  manager.onConfirm(() => confirms++);
   manager.enabled = true;
   manager.centerX = 0;
   manager.centerY = 0;
@@ -105,11 +234,28 @@ test('input manager requires a substantial drag before rotating the board', () =
   manager.onPointerMove({ clientX: 495, clientY: 5 });
   manager.onPointerMove({ clientX: 490, clientY: 10 });
   manager.onPointerMove({ clientX: 485, clientY: 15 });
-
-  expect(rotations).toEqual([]);
-
   manager.onPointerMove({ clientX: 0, clientY: 700 });
-  expect(rotations).toEqual([45]);
+  manager.onPointerUp({ button: 0, pointerId: 1, clientX: 0, clientY: 700 });
+
+  expect(manager.rotationDeg).toBe(0);
+  expect(confirms).toBe(0);
+});
+
+test('input manager can suppress the pointerup left after restarting', () => {
+  const manager = new InputManager() as any;
+  let confirms = 0;
+  manager.onConfirm(() => confirms++);
+  manager.enabled = true;
+  manager.centerX = 0;
+  manager.centerY = 0;
+  manager.octagonRadius = 1000;
+  manager.rotationDeg = 0;
+
+  manager.resetGestureState();
+  manager.suppressCurrentGesture({ pointerId: 7, type: 'pointerdown' });
+  manager.onPointerUp({ button: 0, pointerId: 7, clientX: 50, clientY: 0 });
+
+  expect(confirms).toBe(0);
 });
 
 test('sensing wall moves into an empty breath target and prevents empty-sector effects', async () => {
@@ -272,7 +418,7 @@ test('pressure stone gains hp once on placement and cannot upgrade', () => {
   state.dragons[2].hp = 31;
   const shop = new ShopSystem();
   const item = shopItem('block:pressure_stone');
-  const slot = shop.state.random.find(slot => slot.item?.id === item.id) ?? shop.state.random[0];
+  const slot = shop.state.random[0];
   slot.item = item;
 
   shop.beginPlacementFromSection('random', 0, state.board.villageGold);

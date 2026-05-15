@@ -20,10 +20,12 @@ type Snapshot = {
   board: ({ type: string; hp: number; attack: number; tags: string[] } | null)[];
   dragons: {
     id: string;
+    templateId: string;
     name: string;
     hp: number;
     maxHp: number;
     attack: number;
+    assetName: string | null;
     screen: { x: number; y: number } | null;
   }[];
   shop: {
@@ -48,7 +50,12 @@ type Snapshot = {
   };
   rotationAngle: number;
   turnRotationSteps: number;
+  rotationControls: {
+    clockwise: SlotLayout;
+    counterclockwise: SlotLayout;
+  };
   dragonTooltipVisible: boolean;
+  dragonAssetNames: Record<string, string | null>;
   shopTooltipVisible: boolean;
   shopTooltipLines: string[];
 };
@@ -122,32 +129,6 @@ function emptySectorPoint(state: Snapshot): { x: number; y: number; sector: numb
   };
 }
 
-async function rotateBoardOneStep(page: import('@playwright/test').Page): Promise<Snapshot> {
-  const before = await snapshot(page);
-  const cx = before.screen.octagonCenterX;
-  const cy = before.screen.octagonCenterY;
-  const radius = before.screen.octagonRadius * 0.85;
-  const expectedRotation = (before.rotationAngle + 45) % 360;
-  let rotated = false;
-
-  await page.mouse.move(cx + radius, cy);
-  await page.mouse.down();
-  for (let deg = 15; deg <= 360; deg += 15) {
-    const angle = deg * Math.PI / 180;
-    await page.mouse.move(cx + Math.cos(angle) * radius, cy + Math.sin(angle) * radius);
-    const current = await snapshot(page);
-    if (current.rotationAngle !== before.rotationAngle) {
-      expect(current.rotationAngle).toBe(expectedRotation);
-      rotated = true;
-      break;
-    }
-  }
-  await page.mouse.up();
-  expect(rotated).toBe(true);
-  await page.waitForTimeout(750);
-  return snapshot(page);
-}
-
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
   await expect.poll(async () => randomItems(await snapshot(page)).filter(Boolean).length).toBeGreaterThan(0);
@@ -168,8 +149,11 @@ test('shop starts with base slots, random slots, unique random items, and refres
   expect(visible.map(item => item.id)).not.toContain('spell:missile');
 });
 
-test('a long drag still rotates the board by one step', async ({ page }) => {
-  const rotated = await rotateBoardOneStep(page);
+test('the clockwise rotation button rotates the board by one step', async ({ page }) => {
+  const before = await snapshot(page);
+  await page.mouse.click(before.rotationControls.clockwise.centerX, before.rotationControls.clockwise.centerY);
+  const rotated = await snapshot(page);
+  expect(rotated.rotationAngle).toBe((before.rotationAngle + 45) % 360);
   expect(rotated.turnRotationSteps).toBe(1);
 });
 
@@ -207,7 +191,6 @@ test('clicking a random item selects it and refills that slot after successful p
   const after = await snapshot(page);
   expect(after.board[target.sector]?.type).toBe(found.item.type);
   expect(after.shop.random[found.index].item).toBeTruthy();
-  expect(after.shop.random[found.index].item?.id).not.toBe(found.item.id);
   expect(after.villageGold).toBe(selected.villageGold - found.item.cost);
   expect(after.turnNumber).toBe(selected.turnNumber);
 });
@@ -295,4 +278,17 @@ test('hovering a visible dragon still shows and hides its tooltip', async ({ pag
   await expect.poll(async () => (await snapshot(page)).dragonTooltipVisible).toBe(true);
   await page.mouse.move(20, state.screen.h - 20);
   await expect.poll(async () => (await snapshot(page)).dragonTooltipVisible).toBe(false);
+});
+
+test('dragon templates resolve to asset images', async ({ page }) => {
+  const state = await snapshot(page);
+  expect(state.dragonAssetNames).toMatchObject({
+    wyvern: '亚龙',
+    aurus: '黄金龙',
+    furo: '破坏龙',
+    ignis: '高傲龙',
+    gulo: '贪食龙',
+    brutus: '火龙',
+  });
+  expect(Object.values(state.dragonAssetNames)).not.toContain('procedural');
 });

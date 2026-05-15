@@ -1,10 +1,10 @@
-import { Container, Graphics, Text } from 'pixi.js';
+import { Container, FederatedPointerEvent, Graphics, Text } from 'pixi.js';
 import { GameRenderer } from '../rendering/GameRenderer';
 import { GAME_CONSTANTS } from '../config/constants';
 
 export class GameOverScreen {
   private container: Container;
-  private restartCallback: (() => void) | null = null;
+  private restartCallback: ((event?: { pointerId?: number; type?: string }) => void) | null = null;
 
   constructor(private renderer: GameRenderer) {
     this.container = new Container();
@@ -29,7 +29,7 @@ export class GameOverScreen {
     this.container.addChild(panel);
   }
 
-  show(turnNumber: number, year: number, reason: string, onRestart: () => void): void {
+  show(turnNumber: number, year: number, reason: string, onRestart: (event?: { pointerId?: number; type?: string }) => void): void {
     this.restartCallback = onRestart;
     this.container.removeChildren();
     this.container.visible = true;
@@ -77,8 +77,9 @@ export class GameOverScreen {
     btnBg.fill(0x3366aa);
     btnBg.eventMode = 'static';
     btnBg.cursor = 'pointer';
-    btnBg.on('pointerdown', () => {
-      this.restartCallback?.();
+    btnBg.on('pointerdown', (event: FederatedPointerEvent) => {
+      event.stopPropagation();
+      this.restartCallback?.({ pointerId: event.pointerId, type: event.type });
     });
     this.container.addChild(btnBg);
 

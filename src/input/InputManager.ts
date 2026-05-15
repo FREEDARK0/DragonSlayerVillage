@@ -14,21 +14,14 @@ export interface HoverSectorInfo {
 
 export class InputManager {
   private onConfirmCallback: (() => void) | null = null;
-  private onRotateCallback: ((delta: number) => void) | null = null;
-  private onViewModeChangedCallback: ((enabled: boolean) => void) | null = null;
   private onHoverSectorChangedCallback: ((info: HoverSectorInfo) => void) | null = null;
-  private canToggleViewModeCallback: ((nextMode: boolean) => boolean) | null = null;
   private enabled = false;
-  private viewMode = false;
-  private lastX = 0;
-  private lastY = 0;
   private lastClientX = 0;
   private lastClientY = 0;
   private centerX = 0;
   private centerY = 0;
-  private dragThreshold = 650;
-  private accumDist = 0;
   private gestureDist = 0;
+  private pointerDownActive = false;
   private currentSector: number | null = null;
   private currentPointerOutsideOctagon = false;
   private suppressPointerId: number | null = null;
@@ -69,22 +62,16 @@ export class InputManager {
     canvas.removeEventListener('contextmenu', this.boundContextMenu);
   }
 
-  onRotate(cb: (delta: number) => void): void { this.onRotateCallback = cb; }
   onConfirm(cb: () => void): void { this.onConfirmCallback = cb; }
-  onViewModeChanged(cb: (enabled: boolean) => void): void { this.onViewModeChangedCallback = cb; }
   onHoverSectorChanged(cb: (info: HoverSectorInfo) => void): void { this.onHoverSectorChangedCallback = cb; }
-  canToggleViewMode(cb: (nextMode: boolean) => boolean): void { this.canToggleViewModeCallback = cb; }
   getCurrentSector(): number | null { return this.currentSector; }
   isCurrentPointerOutsideOctagon(): boolean { return this.currentPointerOutsideOctagon; }
-  isViewMode(): boolean { return this.viewMode; }
   setRotationAngle(deg: number): void { this.rotationDeg = deg; }
-  setViewMode(enabled: boolean, force: boolean = false): boolean {
-    if (!force && this.canToggleViewModeCallback && !this.canToggleViewModeCallback(enabled)) return false;
-    if (this.viewMode === enabled) return true;
-    this.viewMode = enabled;
-    this.onViewModeChangedCallback?.(this.viewMode);
-    this.emitHoverSector();
-    return true;
+  resetGestureState(): void {
+    this.gestureDist = 0;
+    this.pointerDownActive = false;
+    this.suppressPointerId = null;
+    this.suppressNextConfirm = false;
   }
   suppressCurrentGesture(event?: PointerLike): void {
     if (event?.type === 'pointerup') return;
@@ -100,47 +87,20 @@ export class InputManager {
     if (e.button === 2) {
       e.preventDefault();
       this.updateCurrentSector(e);
-      this.setViewMode(!this.viewMode);
       return;
     }
     if (e.button !== 0) return;
-    this.lastX = e.clientX;
-    this.lastY = e.clientY;
-    this.accumDist = 0;
     this.gestureDist = 0;
+    this.pointerDownActive = true;
     this.updateCurrentSector(e);
   }
 
   private onPointerMove(e: PointerEvent): void {
     if (!this.enabled) return;
+    const dx = e.clientX - this.lastClientX;
+    const dy = e.clientY - this.lastClientY;
     this.updateCurrentSector(e);
-    if (this.viewMode) return;
-    const dxc = e.clientX - this.centerX;
-    const dyc = e.clientY - this.centerY;
-    const distToCenter = Math.sqrt(dxc * dxc + dyc * dyc);
-    if (distToCenter > this.octagonRadius) return;
-
-    const cx = e.clientX;
-    const cy = e.clientY;
-    const dx = cx - this.lastX;
-    const dy = cy - this.lastY;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    this.accumDist += dist;
-    this.gestureDist += dist;
-    if (this.accumDist < this.dragThreshold) return; // don't update lastX/Y until threshold met
-    this.accumDist = 0;
-
-    // Cross product: (prev-center) x (curr-center) determines rotation direction
-    const px = this.lastX - this.centerX;
-    const py = this.lastY - this.centerY;
-    const ncx = cx - this.centerX;
-    const ncy = cy - this.centerY;
-    const cross = px * ncy - py * ncx;
-    const delta = cross > 0 ? 45 : -45;
-
-    this.lastX = cx;
-    this.lastY = cy;
-    this.onRotateCallback?.(delta);
+    if (this.pointerDownActive) this.gestureDist += Math.sqrt(dx * dx + dy * dy);
   }
 
   private updateCurrentSector(e: PointerEvent): void {
@@ -152,7 +112,7 @@ export class InputManager {
     this.currentPointerOutsideOctagon = !this.isInsideOctagon(dxc, dyc);
     if (this.currentPointerOutsideOctagon || distToCenter < 15) this.currentSector = null;
     else this.currentSector = pixelToSector(dxc, dyc, this.rotationDeg);
-    if (this.viewMode) this.emitHoverSector();
+    this.emitHoverSector();
   }
 
   private isInsideOctagon(dx: number, dy: number): boolean {
@@ -191,7 +151,7 @@ export class InputManager {
     }
     if (e.button !== 0) return;
     this.updateCurrentSector(e);
-    if (this.viewMode) return;
+    this.pointerDownActive = false;
     if (this.shouldSuppressConfirm(e)) return;
     if (this.gestureDist > 8) return;
     this.onConfirmCallback?.();

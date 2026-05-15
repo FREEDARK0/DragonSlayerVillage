@@ -126,7 +126,7 @@ export class EffectRenderer {
   private flashGraphics: Graphics;
   /** 方块动画状态 map: "r,c" → animation */
   blockAnims: Map<string, BlockAnimation> = new Map();
-  /** HP 数字动画状态，扇区用 "0"-"7"，村庄用 "village" */
+  /** 数值动画状态，使用 "sector:0:hp"、"dragon:id:attack"、"village" 等 key */
   powerAnims: Map<string, BlockAnimation> = new Map();
 
   constructor(private renderer: GameRenderer) {
@@ -158,7 +158,17 @@ export class EffectRenderer {
 
   /** HP 数字快速放大并回弹 */
   startPowerBounce(target: number | 'village'): void {
-    this.powerAnims.set(`${target}`, { type: 'pop', progress: 0, duration: 16, scaleX: 1, scaleY: 1, alpha: 1 });
+    this.startStatBounce(target === 'village' ? 'village' : `sector:${target}:hp`);
+  }
+
+  /** 属性数字快速放大、压缩并回弹 */
+  startStatBounce(key: string): void {
+    this.powerAnims.set(key, { type: 'pop', progress: 0, duration: 26, scaleX: 1, scaleY: 1, alpha: 1 });
+  }
+
+  /** 节奏节点触发反馈 */
+  startRhythmBounce(index: number): void {
+    this.powerAnims.set(`rhythm:${index}`, { type: 'pop', progress: 0, duration: 26, scaleX: 1, scaleY: 1, alpha: 1 });
   }
 
   /** 移除动画 */
@@ -423,7 +433,7 @@ export class EffectRenderer {
           break;
         }
         case 'pop': {
-          const s = 1 + Math.sin(t * Math.PI) * 0.55;
+          const s = statPopScale(t);
           anim.scaleX = s;
           anim.scaleY = s;
           anim.alpha = 1;
@@ -619,6 +629,23 @@ function distanceToBoundsFarCorner(x: number, y: number, bounds: { x: number; y:
 
 function easeOutCubic(t: number): number {
   return 1 - Math.pow(1 - t, 3);
+}
+
+function statPopScale(t: number): number {
+  if (t < 0.28) {
+    const p = t / 0.28;
+    return 1 + easeOutCubic(p) * 0.82;
+  }
+  if (t < 0.52) {
+    const p = (t - 0.28) / 0.24;
+    return 1.82 + (0.78 - 1.82) * easeOutCubic(p);
+  }
+  if (t < 0.76) {
+    const p = (t - 0.52) / 0.24;
+    return 0.78 + (1.16 - 0.78) * easeOutCubic(p);
+  }
+  const p = (t - 0.76) / 0.24;
+  return 1.16 + (1 - 1.16) * easeOutCubic(p);
 }
 
 function animationNow(): number {

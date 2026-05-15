@@ -50,7 +50,8 @@ export class DragonAI {
     const decisions: DragonDecision[] = [];
     const rotSteps = Math.round(rotationDeg / 45);
 
-    for (const dragon of [...state.aliveDragons]) {
+    const actionQueue = [...state.aliveDragons].sort((a, b) => dragonActionOrder(a.edgeIndex) - dragonActionOrder(b.edgeIndex));
+    for (const dragon of actionQueue) {
       if (state.skipRemainingDragonActions) break;
       if (!dragon.isAlive) continue;
       const behavior = getDragonBehavior(dragon.personality);
@@ -235,6 +236,10 @@ export function nearestFreeEdge(preferred: number, dragons: DragonState[], movin
 function circularDistance(a: number, b: number): number {
   const diff = Math.abs(a - b);
   return Math.min(diff, 8 - diff);
+}
+
+function dragonActionOrder(edgeIndex: number): number {
+  return ((edgeIndex - 5) % 8 + 8) % 8;
 }
 
 function waitForCombatAnimation(ms: number): Promise<void> {

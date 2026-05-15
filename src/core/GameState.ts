@@ -1,6 +1,8 @@
 import { OctagonBoard } from './OctagonBoard';
+import { EventBus } from './EventBus';
 import { HeroState } from '../models/Hero';
 import { DragonState } from '../models/Dragon';
+import type { RhythmState } from '../systems/RhythmSystem';
 
 export enum TurnState {
   WAITING_FOR_INPUT = 'waiting_for_input',
@@ -24,6 +26,7 @@ export class GameState {
   turnNumber: number = 0;
   year: number = 1;
   skipRemainingDragonActions: boolean = false;
+  rhythm: RhythmState | null = null;
 
   messages: string[] = [];
   gameOver: boolean = false;
@@ -40,6 +43,9 @@ export class GameState {
 
   applyVillageHpDelta(delta: number): void {
     this.board.villageHp += delta;
+    if (delta < 0) {
+      EventBus.emit('villageDamaged', { damage: -delta, hp: this.board.villageHp });
+    }
   }
 
   applyVillageGoldDelta(delta: number): void {

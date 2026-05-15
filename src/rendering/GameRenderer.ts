@@ -1,4 +1,4 @@
-import { Application, Container, Graphics } from 'pixi.js';
+import { Application, Container, Graphics, Sprite, Texture } from 'pixi.js';
 import { pixelToSector, sectorCenterOffset } from '../utils/SectorUtils';
 
 export enum RenderLayer {
@@ -15,6 +15,17 @@ export enum RenderLayer {
 export class GameRenderer {
   app!: Application;
   private layers: Map<RenderLayer, Container> = new Map();
+  private clouds: Array<{
+    container: Container;
+    baseX: number;
+    baseY: number;
+    driftX: number;
+    driftY: number;
+    speed: number;
+    phase: number;
+    alpha: number;
+  }> = [];
+  private cloudTime = 0;
 
   screenW = 0;
   screenH = 0;
@@ -56,6 +67,7 @@ export class GameRenderer {
     }
 
     this.drawBackground();
+    this.app.ticker.add(this.animateClouds, this);
     window.addEventListener('resize', this.onResize.bind(this));
   }
 
@@ -72,27 +84,107 @@ export class GameRenderer {
 
   private drawBackground(): void {
     const bg = this.getLayer(RenderLayer.BACKGROUND);
-    const g = new Graphics();
-    const bands = 14;
-    for (let i = 0; i < bands; i++) {
-      const t = i / (bands - 1);
-      const y = this.screenH * t;
-      const h = this.screenH / bands + 2;
-      const r = Math.floor(0x8e * (1 - t) + 0xd9 * t);
-      const green = Math.floor(0xc8 * (1 - t) + 0xee * t);
-      const b = Math.floor(0xef * (1 - t) + 0xff * t);
-      g.rect(0, y, this.screenW, h);
-      g.fill((r << 16) | (green << 8) | b);
+    bg.removeChildren();
+    this.clouds = [];
+    bg.addChild(this.createSkyGradient());
+
+    const cloudLayer = new Container();
+    cloudLayer.label = 'CloudRing';
+    bg.addChild(cloudLayer);
+    this.createCloudRing(cloudLayer);
+  }
+
+  private createSkyGradient(): Sprite {
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(2, Math.floor(this.screenW));
+    canvas.height = Math.max(2, Math.floor(this.screenH));
+    const ctx = canvas.getContext('2d')!;
+    const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    gradient.addColorStop(0, '#85c9f1');
+    gradient.addColorStop(0.42, '#a9dcf5');
+    gradient.addColorStop(0.72, '#d2edf8');
+    gradient.addColorStop(1, '#eef8fb');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const texture = Texture.from(canvas);
+    const sprite = new Sprite(texture);
+    sprite.label = 'SkyGradient';
+    sprite.width = this.screenW;
+    sprite.height = this.screenH;
+    return sprite;
+  }
+
+  private createCloudRing(layer: Container): void {
+    const placements = [
+      { angle: -2.72, scale: 0.9, alpha: 0.36, phase: 0.1 },
+      { angle: -2.18, scale: 0.72, alpha: 0.3, phase: 1.8 },
+      { angle: -0.93, scale: 0.62, alpha: 0.24, phase: 4.3 },
+      { angle: -0.2, scale: 0.84, alpha: 0.33, phase: 2.7 },
+      { angle: 0.55, scale: 0.72, alpha: 0.27, phase: 5.6 },
+      { angle: 1.06, scale: 0.66, alpha: 0.22, phase: 3.4 },
+      { angle: 2.23, scale: 0.78, alpha: 0.29, phase: 6.2 },
+      { angle: 2.82, scale: 0.64, alpha: 0.25, phase: 1.1 },
+    ];
+
+    for (const [index, cloud] of placements.entries()) {
+      const radius = this.octagonRadius * (1.55 + (index % 3) * 0.08);
+      const baseX = this.octagonCenterX + Math.cos(cloud.angle) * radius;
+      const baseY = this.octagonCenterY + Math.sin(cloud.angle) * radius;
+      const container = this.createCloud(baseX, baseY, cloud.scale, cloud.alpha);
+      container.label = `Cloud-${index}`;
+      layer.addChild(container);
+      this.clouds.push({
+        container,
+        baseX,
+        baseY,
+        driftX: this.octagonRadius * (0.025 + (index % 2) * 0.01),
+        driftY: this.octagonRadius * (0.012 + (index % 3) * 0.004),
+        speed: 0.00042 + index * 0.000035,
+        phase: cloud.phase,
+        alpha: cloud.alpha,
+      });
     }
-    for (let i = 0; i < 6; i++) {
-      const x = (this.screenW * (i + 0.7)) / 6;
-      const y = 90 + (i % 3) * 45;
-      g.ellipse(x, y, 80, 22);
-      g.fill({ color: 0xffffff, alpha: 0.22 });
-      g.ellipse(x + 45, y + 6, 64, 18);
-      g.fill({ color: 0xffffff, alpha: 0.16 });
+  }
+
+  private createCloud(x: number, y: number, scale: number, alpha: number): Container {
+    const cloud = new Container();
+    cloud.position.set(x, y);
+    cloud.scale.set(scale);
+    cloud.alpha = alpha;
+    cloud.eventMode = 'none';
+
+    const shadow = new Graphics();
+    shadow.ellipse(8, 8, 98, 26);
+    shadow.fill({ color: 0x6aa8c1, alpha: 0.18 });
+    cloud.addChild(shadow);
+
+    const body = new Graphics();
+    body.ellipse(-62, 8, 58, 19);
+    body.fill({ color: 0xffffff, alpha: 0.76 });
+    body.ellipse(-18, -4, 72, 29);
+    body.fill({ color: 0xffffff, alpha: 0.82 });
+    body.ellipse(44, 4, 64, 23);
+    body.fill({ color: 0xffffff, alpha: 0.74 });
+    body.ellipse(7, 14, 106, 22);
+    body.fill({ color: 0xf4fbff, alpha: 0.56 });
+    body.ellipse(-10, -9, 38, 15);
+    body.fill({ color: 0xffffff, alpha: 0.42 });
+    cloud.addChild(body);
+
+    return cloud;
+  }
+
+  private animateClouds(): void {
+    this.cloudTime += this.app.ticker.deltaMS;
+    for (const cloud of this.clouds) {
+      const t = this.cloudTime * cloud.speed + cloud.phase;
+      cloud.container.position.set(
+        cloud.baseX + Math.sin(t) * cloud.driftX + Math.sin(t * 0.37) * cloud.driftX * 0.35,
+        cloud.baseY + Math.cos(t * 0.72) * cloud.driftY,
+      );
+      cloud.container.alpha = cloud.alpha + Math.sin(t * 0.9) * 0.035;
     }
-    bg.addChild(g);
   }
 
   getLayer(layer: RenderLayer): Container {

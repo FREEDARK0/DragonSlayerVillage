@@ -6,6 +6,7 @@ import {
   SpellType,
 } from '../config/blockTypes';
 import { GameState } from '../core/GameState';
+import { EventBus } from '../core/EventBus';
 import {
   createPlacedBlock,
   createPlacedPressureStone,
@@ -147,6 +148,8 @@ export class ShopSystem {
       : createPlacedBlock(item.blockType);
     gameState.board.setSector(sector, block);
     this.applyPlacementSmithyBonus(gameState, sector, block);
+    EventBus.emit('blockCreated', { sector, blockType: item.blockType, source: 'shop' });
+    EventBus.emit('blockPlaced', { sector, blockType: item.blockType });
     return { ok: true, message: '建筑已放置' };
   }
 
