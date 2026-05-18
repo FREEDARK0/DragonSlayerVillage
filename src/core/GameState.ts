@@ -3,11 +3,16 @@ import { EventBus } from './EventBus';
 import { HeroState } from '../models/Hero';
 import { DragonState } from '../models/Dragon';
 import type { RhythmState } from '../systems/RhythmSystem';
+import { createInitialRelicState, RelicSystem } from '../systems/RelicSystem';
+import type { RelicState } from '../systems/RelicSystem';
+import type { RandomPort } from '../effects/EffectContext';
+import { isBoardSectorNight } from '../utils/SectorUtils';
 
 export enum TurnState {
   WAITING_FOR_INPUT = 'waiting_for_input',
   EXECUTING_TURN = 'executing_turn',
   ENEMY_TURN = 'enemy_turn',
+  RELIC_SELECTION = 'relic_selection',
 }
 
 export class GameState {
@@ -27,7 +32,9 @@ export class GameState {
   year: number = 1;
   dragonGrowthRound: number = 1;
   skipRemainingDragonActions: boolean = false;
+  nextDragonSpawnSector: number | null = null;
   rhythm: RhythmState | null = null;
+  relics: RelicState = createInitialRelicState();
 
   messages: string[] = [];
   gameOver: boolean = false;
@@ -49,7 +56,12 @@ export class GameState {
     }
   }
 
-  applyVillageGoldDelta(delta: number): void {
+  applyVillageGoldDelta(delta: number, random?: Pick<RandomPort, 'pick'>): void {
     this.board.villageGold += delta;
+    if (delta > 0) RelicSystem.onGoldGained(this, delta, random);
+  }
+
+  isNight(sector: number): boolean {
+    return isBoardSectorNight(sector, this.rotationAngle, this.nightStart, this.nightLength);
   }
 }

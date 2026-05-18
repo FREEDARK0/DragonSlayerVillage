@@ -73,6 +73,18 @@ registerBlockVisual(BlockType.INFANTRY, (g, s) => {
   g.fill(0xd8d8d8);
 });
 
+registerBlockVisual(BlockType.SCOUT, (g, s) => {
+  g.poly([0, -s * 0.72, s * 0.42, -s * 0.18, s * 0.24, s * 0.62, -s * 0.24, s * 0.62, -s * 0.42, -s * 0.18]);
+  g.fill(0x6aa0c8);
+  g.stroke({ width: 1, color: 0x274b63 });
+  g.circle(0, -s * 0.28, s * 0.2);
+  g.fill(0xd8c0a0);
+  g.poly([-s * 0.42, -s * 0.48, 0, -s * 0.88, s * 0.42, -s * 0.48]);
+  g.fill(0x274b63);
+  g.roundRect(s * 0.25, -s * 0.08, s * 0.08, s * 0.7, 1);
+  g.fill(0xe8edf5);
+});
+
 registerBlockVisual(BlockType.POWER_STONE, (g, s) => {
   g.poly([0, -s * 0.75, s * 0.5, 0, 0, s * 0.75, -s * 0.5, 0]);
   g.fill(0xffaa00); g.stroke({ width: 1, color: 0xcc8800 });
@@ -227,4 +239,51 @@ registerBlockVisual(BlockType.DRAGON_SPEAR, (g, s) => {
   g.poly([-s * 0.48, s * 0.2, 0, -s * 0.05, s * 0.48, s * 0.2, 0, s * 0.38]);
   g.fill(0xb83c2e);
   g.stroke({ width: 1, color: 0xffc3a0 });
+});
+
+registerBlockVisual(BlockType.GHOST, (g, s) => {
+  g.ellipse(0, 0, s * 0.46, s * 0.62);
+  g.fill({ color: 0xd7ecff, alpha: 0.82 });
+  g.stroke({ width: 1.2, color: 0x6fa8d8, alpha: 0.9 });
+  g.circle(-s * 0.15, -s * 0.12, s * 0.06);
+  g.circle(s * 0.15, -s * 0.12, s * 0.06);
+  g.fill(0x24486d);
+  g.poly([-s * 0.42, s * 0.3, -s * 0.22, s * 0.52, 0, s * 0.32, s * 0.22, s * 0.52, s * 0.42, s * 0.3]);
+  g.fill({ color: 0xd7ecff, alpha: 0.82 });
+});
+
+registerBlockVisual(BlockType.GOBLIN, (g, s) => {
+  g.circle(0, -s * 0.2, s * 0.36);
+  g.fill(0x7abf4f);
+  g.stroke({ width: 1, color: 0x2f6a28 });
+  g.poly([-s * 0.33, -s * 0.28, -s * 0.72, -s * 0.42, -s * 0.38, -s * 0.05]);
+  g.poly([s * 0.33, -s * 0.28, s * 0.72, -s * 0.42, s * 0.38, -s * 0.05]);
+  g.fill(0x7abf4f);
+  g.roundRect(-s * 0.35, s * 0.18, s * 0.7, s * 0.42, 3);
+  g.fill(0x5b8f38);
+  g.circle(-s * 0.12, -s * 0.24, s * 0.04);
+  g.circle(s * 0.12, -s * 0.24, s * 0.04);
+  g.fill(0x10202a);
+});
+
+registerBlockVisual(BlockType.PRIEST, (g, s) => {
+  g.circle(0, -s * 0.38, s * 0.24);
+  g.fill(0xf2d8b5);
+  g.roundRect(-s * 0.36, -s * 0.12, s * 0.72, s * 0.82, 4);
+  g.fill(0xf6e6a8);
+  g.stroke({ width: 1, color: 0xa98c4d });
+  g.rect(-s * 0.05, -s * 0.02, s * 0.1, s * 0.42);
+  g.rect(-s * 0.19, s * 0.12, s * 0.38, s * 0.1);
+  g.fill(0xffffff);
+});
+
+registerBlockVisual(BlockType.MARKET, (g, s) => {
+  g.roundRect(-s * 0.5, -s * 0.05, s, s * 0.66, 3);
+  g.fill(0xe0a35a);
+  g.stroke({ width: 1, color: 0x8f5a24 });
+  g.poly([-s * 0.55, -s * 0.05, -s * 0.32, -s * 0.48, s * 0.32, -s * 0.48, s * 0.55, -s * 0.05]);
+  g.fill(0xc84b42);
+  g.rect(-s * 0.32, s * 0.18, s * 0.2, s * 0.43);
+  g.rect(s * 0.1, s * 0.1, s * 0.28, s * 0.2);
+  g.fill(0x7ec8ff);
 });

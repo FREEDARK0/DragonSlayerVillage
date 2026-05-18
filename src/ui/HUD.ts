@@ -1,5 +1,5 @@
 import { Container, Graphics, Text } from 'pixi.js';
-import { GameRenderer } from '../rendering/GameRenderer';
+import { GameRenderer, RenderLayer } from '../rendering/GameRenderer';
 
 export class HUD {
   private container: Container;
@@ -9,7 +9,7 @@ export class HUD {
   constructor(private renderer: GameRenderer) {
     this.container = new Container();
     this.container.label = 'HUD';
-    renderer.getLayer(6).addChild(this.container);
+    renderer.getLayer(RenderLayer.UI).addChild(this.container);
 
     this.turnBg = new Graphics();
     this.turnBg.eventMode = 'none';

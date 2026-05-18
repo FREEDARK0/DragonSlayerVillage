@@ -1,5 +1,5 @@
 import { Container, Graphics, Text } from 'pixi.js';
-import { GameRenderer } from '../rendering/GameRenderer';
+import { GameRenderer, RenderLayer } from '../rendering/GameRenderer';
 export class PhaseAnnouncement {
   private container: Container;
   private bg: Graphics;
@@ -13,7 +13,7 @@ export class PhaseAnnouncement {
     this.container = new Container();
     this.container.label = 'PhaseAnnouncement';
     this.container.visible = false;
-    renderer.getLayer(6).addChild(this.container);
+    renderer.getLayer(RenderLayer.UI).addChild(this.container);
 
     const w = this.renderer.screenW;
     const h = this.renderer.screenH;

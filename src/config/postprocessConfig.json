@@ -1,0 +1,27 @@
+{
+  "warmTint": {
+    "enabled": true,
+    "strength": 0.1,
+    "color": "#e8cf8f"
+  },
+  "posterizePalette": {
+    "enabled": false,
+    "bandCount": 7,
+    "colors": [
+      "#24304a",
+      "#5c5261",
+      "#8c7f63",
+      "#f4e6b0",
+      "#fff7d6",
+      "#cde5d6",
+      "#8ab7c9",
+      "#3f5f7a"
+    ]
+  },
+  "softGlow": {
+    "enabled": true,
+    "strength": 0.12,
+    "threshold": 0.74,
+    "radius": 2
+  }
+}

@@ -1,5 +1,5 @@
 import { Container, FederatedPointerEvent, Graphics, Text } from 'pixi.js';
-import { GameRenderer } from '../rendering/GameRenderer';
+import { GameRenderer, RenderLayer } from '../rendering/GameRenderer';
 import { GAME_CONSTANTS } from '../config/constants';
 
 export class GameOverScreen {
@@ -10,7 +10,7 @@ export class GameOverScreen {
     this.container = new Container();
     this.container.label = 'GameOverScreen';
     this.container.visible = false;
-    renderer.getLayer(6).addChild(this.container);
+    renderer.getLayer(RenderLayer.UI).addChild(this.container);
 
     const w = this.renderer.screenW;
     const h = this.renderer.screenH;

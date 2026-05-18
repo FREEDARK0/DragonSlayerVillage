@@ -3,6 +3,7 @@ import { GameRenderer, RenderLayer } from '../rendering/GameRenderer';
 import { BlockAnimation } from '../rendering/EffectRenderer';
 import { RhythmState, RhythmNode, RhythmNodeType } from '../systems/RhythmSystem';
 import { TooltipPanel } from './TooltipPanel';
+import { bindPressable } from './PressInteractions';
 
 interface NodeLayout {
   x: number;
@@ -55,8 +56,11 @@ export class RhythmBar {
     group.scale.set(anim?.scaleX ?? 1, anim?.scaleY ?? 1);
     group.eventMode = 'static';
     group.cursor = 'help';
-    group.on('pointerover', () => this.showNodeTooltip(node, layout.centerX, layout.centerY));
-    group.on('pointerout', () => this.tooltip.hide());
+    bindPressable(group, {
+      onLongPress: () => this.showNodeTooltip(node, layout.centerX, layout.centerY),
+      onHoverStart: () => this.showNodeTooltip(node, layout.centerX, layout.centerY),
+      onHoverEnd: () => this.tooltip.hide(),
+    });
     this.container.addChild(group);
 
     const dim = node.triggered;
@@ -106,6 +110,10 @@ export class RhythmBar {
     return this.tooltip.isVisible();
   }
 
+  hideTooltip(): void {
+    this.tooltip.hide();
+  }
+
   getTooltipLines(): string[] {
     return this.tooltip.getLines();
   }
@@ -147,13 +155,7 @@ export class RhythmBar {
     const gap = count <= 1 ? 0 : Math.min(24, Math.max(radius * 2.2, (availableW - radius * 2) / (count - 1)));
     const totalW = radius * 2 + gap * (count - 1);
     const startX = this.renderer.octagonCenterX - totalW / 2 + radius;
-    const buttonSize = Math.max(42, Math.min(58, Math.floor(this.renderer.octagonRadius * 0.22)));
-    const buttonY = Math.min(this.renderer.screenH - buttonSize - 58, this.renderer.octagonCenterY + this.renderer.octagonRadius + 22);
-    const buttonBottom = buttonY + buttonSize;
-    const desiredGap = Math.max(14, radius * 1.6);
-    const minY = buttonBottom + radius + 4;
-    const maxY = this.renderer.screenH - radius - 10;
-    const y = Math.max(minY, Math.min(maxY, buttonBottom + desiredGap));
+    const y = Math.max(44, this.renderer.screenH - 42);
     return Array.from({ length: count }, (_, index) => {
       const centerX = startX + index * gap;
       return {

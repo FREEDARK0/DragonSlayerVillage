@@ -15,10 +15,23 @@ export interface TooltipLineLayout {
   width: number;
 }
 
+export interface TooltipPanelSnapshot {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface TooltipPositionOptions {
+  placement?: 'auto' | 'right';
+  align?: 'center' | 'top';
+}
+
 export class TooltipPanel {
   private container: Container;
   private currentLines: string[] = [];
   private currentLayout: TooltipLineLayout[] = [];
+  private currentPanel: TooltipPanelSnapshot = { x: 0, y: 0, width: 0, height: 0 };
 
   constructor(private renderer: GameRenderer, label: string = 'TooltipPanel') {
     this.container = new Container();
@@ -27,13 +40,15 @@ export class TooltipPanel {
     renderer.getLayer(RenderLayer.UI).addChild(this.container);
   }
 
-  show(lines: TooltipLine[], anchorX: number, anchorY: number): void {
+  show(lines: TooltipLine[], anchorX: number, anchorY: number, options: TooltipPositionOptions = {}): void {
     this.container.removeChildren();
     this.container.visible = true;
+    this.container.eventMode = 'none';
+    this.bringToFront();
     this.currentLines = lines.map(line => line.text);
     this.currentLayout = [];
 
-    const width = 230;
+    const width = Math.max(190, Math.min(260, this.renderer.screenW - 16));
     const paddingX = 10;
     const paddingY = 8;
     const lineGap = 4;
@@ -70,12 +85,19 @@ export class TooltipPanel {
     this.container.addChild(bg);
     for (const text of textItems) this.container.addChild(text);
 
-    const above = anchorY > this.renderer.screenH / 2;
     let x = anchorX - width / 2;
-    let y = above ? anchorY - height - 70 : anchorY + 70;
+    let y = anchorY;
+    if (options.placement === 'right') {
+      x = anchorX;
+      y = options.align === 'top' ? anchorY : anchorY - height / 2;
+    } else {
+      const above = anchorY > this.renderer.screenH / 2;
+      y = above ? anchorY - height - 70 : anchorY + 70;
+    }
     x = Math.max(8, Math.min(this.renderer.screenW - width - 8, x));
     y = Math.max(42, Math.min(this.renderer.screenH - height - 8, y));
     this.container.position.set(x, y);
+    this.currentPanel = { x, y, width, height };
   }
 
   hide(): void {
@@ -83,6 +105,7 @@ export class TooltipPanel {
     this.container.removeChildren();
     this.currentLines = [];
     this.currentLayout = [];
+    this.currentPanel = { x: 0, y: 0, width: 0, height: 0 };
   }
 
   isVisible(): boolean {
@@ -95,5 +118,14 @@ export class TooltipPanel {
 
   getLineLayout(): TooltipLineLayout[] {
     return this.currentLayout.map(line => ({ ...line }));
+  }
+
+  getPanelSnapshot(): TooltipPanelSnapshot {
+    return { ...this.currentPanel };
+  }
+
+  bringToFront(): void {
+    const parent = this.container.parent;
+    if (parent) parent.addChild(this.container);
   }
 }

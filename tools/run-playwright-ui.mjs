@@ -1,9 +1,12 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { readFile, writeFile } from 'node:fs/promises';
 import { createServer } from 'vite';
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const postProcessConfigPath = resolve(rootDir, 'src', 'config', 'postprocessConfig.json');
+const originalPostProcessConfig = await readFile(postProcessConfigPath, 'utf8').catch(() => null);
 const server = await createServer({
   root: rootDir,
   configFile: resolve(rootDir, 'vite.config.ts'),
@@ -27,6 +30,9 @@ try {
   exitCode = await runPlaywright(process.argv.slice(2), baseURL);
 } finally {
   await server.close();
+  if (originalPostProcessConfig !== null) {
+    await writeFile(postProcessConfigPath, originalPostProcessConfig, 'utf8');
+  }
 }
 
 process.exitCode = exitCode;

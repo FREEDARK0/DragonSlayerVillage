@@ -13,6 +13,37 @@ export function rotationToRad(deg: number): number {
   return (deg % 360) * DEG45 / 45;
 }
 
+export function rotationToSteps(rotationDeg: number): number {
+  return Math.round(rotationDeg / 45);
+}
+
+export function normalizeSector(index: number): number {
+  return ((index % SECTOR_COUNT) + SECTOR_COUNT) % SECTOR_COUNT;
+}
+
+/**
+ * 龙的 edgeIndex 是屏幕固定边，棋盘扇区会随 rotationDeg 旋转。
+ * 这个映射必须与吐息逻辑的 logicalEdge 保持一致。
+ */
+export function dragonEdgeToBoardSector(edgeIndex: number, rotationDeg: number = 0): number {
+  return normalizeSector(edgeIndex - rotationToSteps(rotationDeg));
+}
+
+export function boardSectorToWorldEdge(sector: number, rotationDeg: number = 0): number {
+  return normalizeSector(sector + rotationToSteps(rotationDeg));
+}
+
+export function isWorldSectorNight(edgeIndex: number, nightStart: number, nightLength: number): boolean {
+  for (let i = 0; i < nightLength; i++) {
+    if (normalizeSector(nightStart + i) === normalizeSector(edgeIndex)) return true;
+  }
+  return false;
+}
+
+export function isBoardSectorNight(sector: number, rotationDeg: number, nightStart: number, nightLength: number): boolean {
+  return isWorldSectorNight(boardSectorToWorldEdge(sector, rotationDeg), nightStart, nightLength);
+}
+
 /** 扇形中心角度 (rad, 0=右, PI/2=下), rotationDeg 为旋转度数 */
 export function sectorAngle(index: number, rotationDeg: number = 0): number {
   return rotationToRad(rotationDeg) + (index + 0.5) * SECTOR_ANGLE;

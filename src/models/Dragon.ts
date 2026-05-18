@@ -18,11 +18,16 @@ export interface DragonState {
   hasTakenDamage: boolean;
   attackCount: number;
   respawnAvailableTurn: number | null;
+  readyToAttackTurn: number;
   /** 龙所在的边 (0-7) */
   edgeIndex: number;
 }
 
 let dragonInstanceId = 0;
+
+export function resetDragonInstanceCounter(nextId: number = 0): void {
+  dragonInstanceId = nextId;
+}
 
 export function createDragon(template: DragonTemplate, edgeIndex: number): DragonState {
   dragonInstanceId++;
@@ -44,6 +49,7 @@ export function createDragon(template: DragonTemplate, edgeIndex: number): Drago
     hasTakenDamage: false,
     attackCount: 0,
     respawnAvailableTurn: null,
+    readyToAttackTurn: 0,
     edgeIndex,
   };
   resetDragonForSpawn(dragon, template, edgeIndex);
@@ -67,6 +73,7 @@ export function resetDragonForSpawn(dragon: DragonState, template: DragonTemplat
   dragon.hasTakenDamage = false;
   dragon.attackCount = 0;
   dragon.respawnAvailableTurn = null;
+  dragon.readyToAttackTurn = 0;
   dragon.edgeIndex = edgeIndex;
 }
 

@@ -1,14 +1,18 @@
 import { GameState, TurnState } from './GameState';
-import { SpawnSystem, buildRespawnPools } from '../systems/SpawnSystem';
-import { DragonAI, highestAttackFriendlySector, nearestFreeEdge } from '../ai/DragonAI';
+import { SpawnSystem, buildRespawnPools, initMapForState } from '../systems/SpawnSystem';
+import { highestAttackFriendlySector, nearestFreeEdge } from '../ai/DragonAI';
+import { DragonAI } from '../ai/DragonAI';
 import { createDragon, resetDragonForSpawn, DragonState } from '../models/Dragon';
 import { getAvailableDragons, DragonPersonalityType, getDragonTemplateForRound } from '../config/dragonTypes';
 import { EventBus } from './EventBus';
-import { weightedPick } from '../utils/random';
-import { createEffectContext } from '../effects/EffectContext';
-import { calculateVillageIncome, runBlockTurnEnd, runBlockTurnStart, runFriendlyAttacks } from '../effects/BlockEffectRegistry';
+import { CombatStats, createEffectContext, RandomPort } from '../effects/EffectContext';
+import { calculateVillageIncome, runBlockTurnEndSequenced } from '../effects/BlockEffectRegistry';
 import { DragonTemplate } from '../config/dragonTypes';
 import { RhythmSystem } from '../systems/RhythmSystem';
+import { CombatLifecycleSystem } from '../systems/CombatLifecycleSystem';
+import { boardSectorToWorldEdge, isWorldSectorNight } from '../utils/SectorUtils';
+import { RelicSystem } from '../systems/RelicSystem';
+import { defaultRandomSource, RandomSource, randomWeightedPick } from '../utils/random';
 
 const RHYTHM_NODE_ANIMATION_MS = 430;
 
@@ -20,34 +24,39 @@ function getMaxDragons(turn: number): number {
 }
 
 export class TurnManager {
-  private spawnSystem = new SpawnSystem();
+  private spawnSystem: SpawnSystem;
   private dragonAI = new DragonAI();
-  private rhythmSystem = new RhythmSystem();
+  private rhythmSystem: RhythmSystem;
+  private combatLifecycle = new CombatLifecycleSystem();
   onTurnStarted: (() => void) | null = null;
+  onRelicSelectionStarted: (() => void) | null = null;
+  private random: RandomSource;
 
-  constructor(private state: GameState) {}
+  constructor(private state: GameState, random: RandomSource = defaultRandomSource) {
+    this.random = random;
+    this.spawnSystem = new SpawnSystem(random);
+    this.rhythmSystem = new RhythmSystem(random);
+  }
 
   initWorld(): void {
-    const villageSector = this.spawnSystem.initMap(this.state.board);
+    const villageSector = initMapForState(this.state, this.spawnSystem);
     this.state.hero.heroSector = villageSector;
     this.state.rhythm = this.rhythmSystem.createInitialState();
   }
 
-  async executeTurn(): Promise<void> {
+  async executeTurn(random: RandomPort = this.random, combatStats?: CombatStats): Promise<void> {
     this.state.turnState = TurnState.EXECUTING_TURN;
     this.state.skipRemainingDragonActions = false;
-    const ctx = createEffectContext(this.state);
+    const ctx = createEffectContext(this.state, { random, combatStats });
+    RelicSystem.applyBeforePlayerTurnEnds(this.state);
 
     const gain = calculateVillageIncome(ctx);
-    this.state.applyVillageGoldDelta(gain);
+    ctx.applyVillageGoldDelta(gain);
     this.state.addMessage(`金币 +${gain}`);
-
-    runBlockTurnStart(ctx);
-    runFriendlyAttacks(ctx);
 
     this.state.turnState = TurnState.ENEMY_TURN;
     EventBus.emit('enemyTurnStart', {});
-    const decisions = await this.dragonAI.executeTurn(this.state);
+    const { dragonDecisions: decisions } = await this.combatLifecycle.executeCombatSegment(ctx);
     for (const dec of decisions) this.state.addMessage(dec.description);
     this.dragonAI.handlePostTurn(this.state);
 
@@ -65,20 +74,41 @@ export class TurnManager {
     this.state.nightGrowing = nextNight.growing;
 
     for (const d of this.state.aliveDragons) d.turnCounter++;
-    runBlockTurnEnd(ctx);
+    await runBlockTurnEndSequenced(ctx);
     const rhythmResult = this.rhythmSystem.advance(this.state);
     if (rhythmResult.completedRound) {
       await waitForTurnAnimation(RHYTHM_NODE_ANIMATION_MS);
       this.rhythmSystem.startNextRound(this.state);
       this.state.dragonGrowthRound = (this.state.rhythm?.round ?? 0) + 1;
       EventBus.emit('dragonGrowthAdvanced', { round: this.state.dragonGrowthRound });
+      RelicSystem.createChoices(this.state, 4, this.random);
+      this.state.skipRemainingDragonActions = false;
+      this.state.turnNumber++;
+      this.state.turnRotationSteps = 0;
+      this.state.turnState = TurnState.RELIC_SELECTION;
+      this.onRelicSelectionStarted?.();
+      return;
     }
     this.state.skipRemainingDragonActions = false;
     this.state.turnNumber++;
     this.state.turnRotationSteps = 0;
     this.state.turnState = TurnState.WAITING_FOR_INPUT;
-    this.onTurnStarted?.();
+    this.startPlayerTurn();
     EventBus.emit('turnComplete', { turnNumber: this.state.turnNumber });
+  }
+
+  completeRelicSelection(): void {
+    const selected = RelicSystem.confirmSelection(this.state);
+    if (!selected) return;
+    this.state.addMessage(`获得遗物：${selected.label}`);
+    this.state.turnState = TurnState.WAITING_FOR_INPUT;
+    this.startPlayerTurn();
+    EventBus.emit('turnComplete', { turnNumber: this.state.turnNumber });
+  }
+
+  startPlayerTurn(): void {
+    RelicSystem.applyOnPlayerTurnStart(this.state, this.random);
+    this.onTurnStarted?.();
   }
 
   private spawnDragonsByTurn(): void {
@@ -91,30 +121,46 @@ export class TurnManager {
     if (available.length === 0) return;
 
     const { liveByTemplate, readyByTemplate } = buildRespawnPools(this.state.dragons, nextTurn);
-    const candidates = available.filter(t => (liveByTemplate.get(t.id) ?? 0) < t.quantity);
-    if (candidates.length === 0) return;
-
+    const nextNight = this.previewNextNightState();
     const usedEdges = new Set(alive.map(d => d.edgeIndex));
     const free = [0,1,2,3,4,5,6,7].filter(e => !usedEdges.has(e));
     if (free.length === 0) return;
 
-    const template = weightedPick(candidates, candidates.map(d => d.spawnWeight));
-    const edge = this.chooseSpawnEdge(template, usedEdges, free);
+    const candidates = available.filter(t => {
+      if ((liveByTemplate.get(t.id) ?? 0) >= t.quantity) return false;
+      if (t.personality !== DragonPersonalityType.DESTRUCTIVE) return true;
+      if (this.state.nightLength >= 8) return false;
+      return this.nonNightFreeEdges(free, nextNight.start, nextNight.length).length > 0;
+    });
+    if (candidates.length === 0) return;
+
+    const template = randomWeightedPick(candidates, candidates.map(d => d.spawnWeight), this.random);
+    const edge = this.chooseSpawnEdge(template, usedEdges, free, nextNight);
     const nd = this.spawnOrReuseDragon(template, edge, readyByTemplate);
+    nd.readyToAttackTurn = nextTurn + 1;
     this.state.addMessage(`${nd.name} 出现了！`);
     EventBus.emit('dragonAppeared', { dragon: nd });
   }
 
-  private chooseSpawnEdge(template: DragonTemplate, usedEdges: Set<number>, free: number[]): number {
+  private chooseSpawnEdge(template: DragonTemplate, usedEdges: Set<number>, free: number[], nextNight: { start: number; length: number }): number {
+    if (this.state.nextDragonSpawnSector !== null) {
+      const preferred = boardSectorToWorldEdge(this.state.nextDragonSpawnSector, this.state.rotationAngle);
+      this.state.nextDragonSpawnSector = null;
+      if (!usedEdges.has(preferred)) return preferred;
+    }
     if (template.personality === DragonPersonalityType.ARROGANT) {
-      const ctx = createEffectContext(this.state);
+      const ctx = createEffectContext(this.state, { random: this.random });
       const targetSector = highestAttackFriendlySector(ctx);
       if (targetSector !== null) {
-        const edge = nearestFreeEdge(targetSector, this.state.aliveDragons);
+        const edge = nearestFreeEdge(boardSectorToWorldEdge(targetSector, this.state.rotationAngle), this.state.aliveDragons);
         if (edge !== null && !usedEdges.has(edge)) return edge;
       }
     }
-    return free[Math.floor(Math.random() * free.length)];
+    if (template.personality === DragonPersonalityType.DESTRUCTIVE) {
+      const visibleFree = this.nonNightFreeEdges(free, nextNight.start, nextNight.length);
+      if (visibleFree.length > 0) return this.random.pick(visibleFree);
+    }
+    return this.random.pick(free);
   }
 
   private spawnOrReuseDragon(template: DragonTemplate, edgeIndex: number, readyByTemplate: Map<string, DragonState[]>): DragonState {
@@ -153,6 +199,10 @@ export class TurnManager {
     }
 
     return { start, length, growing };
+  }
+
+  private nonNightFreeEdges(free: number[], nightStart: number, nightLength: number): number[] {
+    return free.filter(edge => !isWorldSectorNight(edge, nightStart, nightLength));
   }
 
 }

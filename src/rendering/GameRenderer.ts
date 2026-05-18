@@ -1,44 +1,71 @@
 import { Application, Container, Graphics, Sprite, Texture } from 'pixi.js';
+import { PostProcessConfig, PostProcessSnapshot, ScreenPostProcess, WarmTintSnapshot } from './ScreenPostProcess';
+import { CloudscapeRenderer, CloudscapeSnapshot } from './CloudscapeRenderer';
 import { pixelToSector, sectorCenterOffset } from '../utils/SectorUtils';
+
+export interface IslandShadowSnapshot {
+  x: number;
+  y: number;
+  radius: number;
+  color: number;
+  alpha: number;
+  layerBelowNight: boolean;
+  hasGlow: boolean;
+}
+
+export type LayoutProfile = 'desktop' | 'tablet' | 'mobilePortrait' | 'mobileLandscape';
+
+interface SafeAreaInsets {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
 
 export enum RenderLayer {
   BACKGROUND = 0,
-  NIGHT = 1,
-  BOARD = 2,
-  BLOCKS = 3,
-  VISION_ARC = 4,
-  DRAGONS = 5,
-  UI = 6,
-  OVERLAY = 7,
+  ISLAND_SHADOW = 1,
+  NIGHT = 2,
+  BOARD = 3,
+  BLOCKS = 4,
+  VISION_ARC = 5,
+  DRAGONS = 6,
+  CLOUD_SHADOW = 7,
+  CLOUD_OVERLAY = 8,
+  UI = 9,
+  OVERLAY = 10,
+  TUTORIAL_DIM = 11,
+  TUTORIAL_UI = 12,
+  DEBUG_UI = 13,
 }
 
 export class GameRenderer {
+  private static readonly BASE_SCREEN_W = 1280;
+  private static readonly BASE_SCREEN_H = 720;
   app!: Application;
+  private postProcess!: ScreenPostProcess;
+  private cloudscapeRenderer!: CloudscapeRenderer;
+  private sceneContainer = new Container();
   private layers: Map<RenderLayer, Container> = new Map();
-  private clouds: Array<{
-    container: Container;
-    baseX: number;
-    baseY: number;
-    driftX: number;
-    driftY: number;
-    speed: number;
-    phase: number;
-    alpha: number;
-  }> = [];
-  private cloudTime = 0;
+  private islandShadowSnapshot: IslandShadowSnapshot | null = null;
+  private resizeFrame: number | null = null;
+  private readonly requestResize = () => this.scheduleResize();
 
   screenW = 0;
   screenH = 0;
+  viewportW = 0;
+  viewportH = 0;
+  displayScale = 1;
+  renderResolution = 1;
+  layoutProfile: LayoutProfile = 'desktop';
+  safeArea: SafeAreaInsets = { top: 0, right: 0, bottom: 0, left: 0 };
   octagonCenterX = 0;
   octagonCenterY = 0;
   octagonRadius = 0;
+  onResized: (() => void) | null = null;
 
   async init(): Promise<void> {
-    this.screenW = window.innerWidth;
-    this.screenH = window.innerHeight;
-    this.octagonRadius = Math.min(this.screenW, this.screenH) * 0.28;
-    this.octagonCenterX = this.screenW / 2;
-    this.octagonCenterY = this.screenH / 2 + 60;
+    this.updateScreenMetrics();
 
     this.app = new Application();
     await this.app.init({
@@ -46,7 +73,7 @@ export class GameRenderer {
       height: this.screenH,
       background: 0x88c8ee,
       antialias: true,
-      resolution: window.devicePixelRatio || 1,
+      resolution: this.renderResolution,
       autoDensity: true,
       preserveDrawingBuffer: true,
       premultipliedAlpha: false,
@@ -57,41 +84,192 @@ export class GameRenderer {
     canvas.style.position = 'fixed';
     canvas.style.top = '0';
     canvas.style.left = '0';
+    canvas.style.transformOrigin = 'top left';
+    canvas.style.imageRendering = 'auto';
+    canvas.style.touchAction = 'none';
+    canvas.style.userSelect = 'none';
+    canvas.style.webkitUserSelect = 'none';
+    this.updateCanvasDisplaySize();
     canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); });
 
+    this.sceneContainer.label = 'PostProcessedScene';
+    this.sceneContainer.eventMode = 'passive';
+    this.app.stage.addChild(this.sceneContainer);
     for (const layer of Object.values(RenderLayer).filter(v => typeof v === 'number')) {
       const container = new Container();
       container.label = `Layer-${RenderLayer[layer as RenderLayer]}`;
-      this.app.stage.addChild(container);
+      if ((layer as RenderLayer) !== RenderLayer.UI && (layer as RenderLayer) !== RenderLayer.OVERLAY && (layer as RenderLayer) !== RenderLayer.TUTORIAL_DIM && (layer as RenderLayer) !== RenderLayer.TUTORIAL_UI && (layer as RenderLayer) !== RenderLayer.DEBUG_UI && (layer as RenderLayer) !== RenderLayer.DRAGONS) {
+        container.eventMode = 'none';
+      }
+      if ((layer as RenderLayer) <= RenderLayer.CLOUD_OVERLAY) {
+        this.sceneContainer.addChild(container);
+      } else {
+        this.app.stage.addChild(container);
+      }
       this.layers.set(layer as RenderLayer, container);
     }
 
+    this.postProcess = new ScreenPostProcess(this);
+    await this.postProcess.loadConfig();
+    this.cloudscapeRenderer = new CloudscapeRenderer(this);
     this.drawBackground();
-    this.app.ticker.add(this.animateClouds, this);
-    window.addEventListener('resize', this.onResize.bind(this));
+    this.drawIslandShadow();
+    this.app.ticker.add(this.animateCloudscape, this);
+    window.addEventListener('resize', this.requestResize);
+    document.addEventListener('fullscreenchange', this.requestResize);
+    window.visualViewport?.addEventListener('resize', this.requestResize);
+    window.visualViewport?.addEventListener('scroll', this.requestResize);
   }
 
-  private onResize(): void {
-    this.screenW = window.innerWidth;
-    this.screenH = window.innerHeight;
-    this.octagonRadius = Math.min(this.screenW, this.screenH) * 0.28;
+  private scheduleResize(): void {
+    if (this.resizeFrame !== null) return;
+    this.resizeFrame = window.requestAnimationFrame(() => {
+      this.resizeFrame = null;
+      this.resizeToViewport();
+      this.onResized?.();
+    });
+  }
+
+  private updateScreenMetrics(): void {
+    const viewport = window.visualViewport;
+    this.safeArea = readSafeAreaInsets();
+    const rawViewportW = Math.max(
+      1,
+      Math.round(Math.max(
+        viewport?.width ?? 0,
+        window.innerWidth || 0,
+        document.documentElement.clientWidth || 0,
+      )),
+    );
+    const rawViewportH = Math.max(
+      1,
+      Math.round(Math.max(
+        viewport?.height ?? 0,
+        window.innerHeight || 0,
+        document.documentElement.clientHeight || 0,
+      )),
+    );
+    this.viewportW = Math.max(1, Math.round(rawViewportW - this.safeArea.left - this.safeArea.right));
+    this.viewportH = Math.max(1, Math.round(rawViewportH - this.safeArea.top - this.safeArea.bottom));
+    this.layoutProfile = this.resolveLayoutProfile(this.viewportW, this.viewportH);
+    const baseW = this.layoutProfile === 'mobilePortrait'
+      ? 720
+      : this.layoutProfile === 'mobileLandscape'
+        ? 960
+        : GameRenderer.BASE_SCREEN_W;
+    const baseH = this.layoutProfile === 'mobilePortrait'
+      ? 1080
+      : this.layoutProfile === 'mobileLandscape'
+        ? 640
+        : GameRenderer.BASE_SCREEN_H;
+    this.displayScale = Math.min(
+      this.viewportW / baseW,
+      this.viewportH / baseH,
+    );
+    if (this.layoutProfile === 'desktop') this.displayScale = Math.max(1, this.displayScale);
+    this.displayScale = Math.max(0.32, this.displayScale);
+    this.renderResolution = Math.max(
+      1,
+      Math.min(3, (window.devicePixelRatio || 1) * this.displayScale),
+    );
+    this.screenW = Math.max(baseW, Math.round(this.viewportW / Math.max(0.001, this.displayScale)));
+    this.screenH = Math.max(baseH, Math.round(this.viewportH / Math.max(0.001, this.displayScale)));
+    this.octagonRadius = this.layoutProfile === 'mobilePortrait'
+      ? Math.min(this.screenW * 0.39, this.screenH * 0.21)
+      : this.layoutProfile === 'mobileLandscape'
+        ? Math.min(this.screenW, this.screenH) * 0.25
+        : Math.min(this.screenW, this.screenH) * 0.28;
     this.octagonCenterX = this.screenW / 2;
-    this.octagonCenterY = this.screenH / 2 + 60;
-    this.app.renderer.resize(this.screenW, this.screenH);
+    this.octagonCenterY = this.layoutProfile === 'mobilePortrait'
+      ? this.screenH * 0.46
+      : this.layoutProfile === 'mobileLandscape'
+        ? this.screenH / 2 + 40
+        : this.screenH / 2 + 60;
+  }
+
+  private resizeToViewport(): void {
+    const previousW = this.screenW;
+    const previousH = this.screenH;
+    const previousResolution = this.renderResolution;
+    this.updateScreenMetrics();
+    if (this.screenW === previousW && this.screenH === previousH && this.renderResolution === previousResolution) {
+      this.updateCanvasDisplaySize();
+      return;
+    }
+    this.app.renderer.resize(this.screenW, this.screenH, this.renderResolution);
+    this.updateCanvasDisplaySize();
+    this.postProcess.resize();
+    this.cloudscapeRenderer.resize();
     this.layers.get(RenderLayer.BACKGROUND)?.removeChildren();
+    this.layers.get(RenderLayer.ISLAND_SHADOW)?.removeChildren();
     this.drawBackground();
+    this.drawIslandShadow();
+  }
+
+  private updateCanvasDisplaySize(): void {
+    const canvas = this.app.canvas as HTMLCanvasElement;
+    canvas.style.left = `${this.safeArea.left}px`;
+    canvas.style.top = `${this.safeArea.top}px`;
+    canvas.style.width = `${this.viewportW}px`;
+    canvas.style.height = `${this.viewportH}px`;
+  }
+
+  clientToWorld(clientX: number, clientY: number): { x: number; y: number } {
+    const canvas = this.app.canvas as HTMLCanvasElement;
+    const rect = canvas.getBoundingClientRect();
+    const width = rect.width || this.viewportW || this.screenW;
+    const height = rect.height || this.viewportH || this.screenH;
+    return {
+      x: ((clientX - rect.left) / width) * this.screenW,
+      y: ((clientY - rect.top) / height) * this.screenH,
+    };
+  }
+
+  worldToClient(x: number, y: number): { x: number; y: number } {
+    const canvas = this.app.canvas as HTMLCanvasElement;
+    const rect = canvas.getBoundingClientRect();
+    const width = rect.width || this.viewportW || this.screenW;
+    const height = rect.height || this.viewportH || this.screenH;
+    return {
+      x: rect.left + (x / this.screenW) * width,
+      y: rect.top + (y / this.screenH) * height,
+    };
+  }
+
+  private resolveLayoutProfile(width: number, height: number): LayoutProfile {
+    if (width <= 700 && height > width) return 'mobilePortrait';
+    if (height <= 520 || (width <= 920 && width > height)) return 'mobileLandscape';
+    if (width <= 1024 || height <= 760) return 'tablet';
+    return 'desktop';
   }
 
   private drawBackground(): void {
     const bg = this.getLayer(RenderLayer.BACKGROUND);
     bg.removeChildren();
-    this.clouds = [];
     bg.addChild(this.createSkyGradient());
+  }
 
-    const cloudLayer = new Container();
-    cloudLayer.label = 'CloudRing';
-    bg.addChild(cloudLayer);
-    this.createCloudRing(cloudLayer);
+  private drawIslandShadow(): void {
+    const layer = this.getLayer(RenderLayer.ISLAND_SHADOW);
+    layer.removeChildren();
+    const color = 0x02070d;
+    const alpha = 0.2;
+    const radius = this.octagonRadius * 1.035;
+    const shadow = new Graphics();
+    shadow.label = 'IslandDarkCircleShadow';
+    shadow.eventMode = 'none';
+    shadow.circle(this.octagonCenterX, this.octagonCenterY, radius);
+    shadow.fill({ color, alpha });
+    layer.addChild(shadow);
+    this.islandShadowSnapshot = {
+      x: this.octagonCenterX,
+      y: this.octagonCenterY,
+      radius,
+      color,
+      alpha,
+      layerBelowNight: RenderLayer.ISLAND_SHADOW < RenderLayer.NIGHT,
+      hasGlow: false,
+    };
   }
 
   private createSkyGradient(): Sprite {
@@ -115,80 +293,49 @@ export class GameRenderer {
     return sprite;
   }
 
-  private createCloudRing(layer: Container): void {
-    const placements = [
-      { angle: -2.72, scale: 0.9, alpha: 0.36, phase: 0.1 },
-      { angle: -2.18, scale: 0.72, alpha: 0.3, phase: 1.8 },
-      { angle: -0.93, scale: 0.62, alpha: 0.24, phase: 4.3 },
-      { angle: -0.2, scale: 0.84, alpha: 0.33, phase: 2.7 },
-      { angle: 0.55, scale: 0.72, alpha: 0.27, phase: 5.6 },
-      { angle: 1.06, scale: 0.66, alpha: 0.22, phase: 3.4 },
-      { angle: 2.23, scale: 0.78, alpha: 0.29, phase: 6.2 },
-      { angle: 2.82, scale: 0.64, alpha: 0.25, phase: 1.1 },
-    ];
-
-    for (const [index, cloud] of placements.entries()) {
-      const radius = this.octagonRadius * (1.55 + (index % 3) * 0.08);
-      const baseX = this.octagonCenterX + Math.cos(cloud.angle) * radius;
-      const baseY = this.octagonCenterY + Math.sin(cloud.angle) * radius;
-      const container = this.createCloud(baseX, baseY, cloud.scale, cloud.alpha);
-      container.label = `Cloud-${index}`;
-      layer.addChild(container);
-      this.clouds.push({
-        container,
-        baseX,
-        baseY,
-        driftX: this.octagonRadius * (0.025 + (index % 2) * 0.01),
-        driftY: this.octagonRadius * (0.012 + (index % 3) * 0.004),
-        speed: 0.00042 + index * 0.000035,
-        phase: cloud.phase,
-        alpha: cloud.alpha,
-      });
-    }
-  }
-
-  private createCloud(x: number, y: number, scale: number, alpha: number): Container {
-    const cloud = new Container();
-    cloud.position.set(x, y);
-    cloud.scale.set(scale);
-    cloud.alpha = alpha;
-    cloud.eventMode = 'none';
-
-    const shadow = new Graphics();
-    shadow.ellipse(8, 8, 98, 26);
-    shadow.fill({ color: 0x6aa8c1, alpha: 0.18 });
-    cloud.addChild(shadow);
-
-    const body = new Graphics();
-    body.ellipse(-62, 8, 58, 19);
-    body.fill({ color: 0xffffff, alpha: 0.76 });
-    body.ellipse(-18, -4, 72, 29);
-    body.fill({ color: 0xffffff, alpha: 0.82 });
-    body.ellipse(44, 4, 64, 23);
-    body.fill({ color: 0xffffff, alpha: 0.74 });
-    body.ellipse(7, 14, 106, 22);
-    body.fill({ color: 0xf4fbff, alpha: 0.56 });
-    body.ellipse(-10, -9, 38, 15);
-    body.fill({ color: 0xffffff, alpha: 0.42 });
-    cloud.addChild(body);
-
-    return cloud;
-  }
-
-  private animateClouds(): void {
-    this.cloudTime += this.app.ticker.deltaMS;
-    for (const cloud of this.clouds) {
-      const t = this.cloudTime * cloud.speed + cloud.phase;
-      cloud.container.position.set(
-        cloud.baseX + Math.sin(t) * cloud.driftX + Math.sin(t * 0.37) * cloud.driftX * 0.35,
-        cloud.baseY + Math.cos(t * 0.72) * cloud.driftY,
-      );
-      cloud.container.alpha = cloud.alpha + Math.sin(t * 0.9) * 0.035;
-    }
+  private animateCloudscape(): void {
+    this.cloudscapeRenderer.update(this.app.ticker.deltaMS);
   }
 
   getLayer(layer: RenderLayer): Container {
     return this.layers.get(layer)!;
+  }
+
+  getPostProcessTarget(): Container {
+    return this.sceneContainer;
+  }
+
+  getWarmTintSnapshot(): WarmTintSnapshot {
+    return this.postProcess.getSnapshot().warmTint;
+  }
+
+  getPostProcessSnapshot(): PostProcessSnapshot {
+    return this.postProcess.getSnapshot();
+  }
+
+  getPostProcessConfig(): PostProcessConfig {
+    return this.postProcess.getConfig();
+  }
+
+  getDefaultPostProcessConfig(): PostProcessConfig {
+    return this.postProcess.getDefaultConfig();
+  }
+
+  setPostProcessConfig(config: Partial<PostProcessConfig>): PostProcessConfig {
+    return this.postProcess.setConfig(config);
+  }
+
+  setCloudscapeVisible(visible: boolean): void {
+    this.cloudscapeRenderer.setVisible(visible);
+  }
+
+  getCloudscapeSnapshot(): CloudscapeSnapshot {
+    return this.cloudscapeRenderer.getSnapshot();
+  }
+
+  getIslandShadowSnapshot(): IslandShadowSnapshot {
+    if (!this.islandShadowSnapshot) this.drawIslandShadow();
+    return this.islandShadowSnapshot!;
   }
 
   pixelToSectorIndex(px: number, py: number): number | null {
@@ -205,4 +352,20 @@ export class GameRenderer {
       y: this.octagonCenterY + offset.y,
     };
   }
+}
+
+function readSafeAreaInsets(): SafeAreaInsets {
+  if (typeof window === 'undefined') return { top: 0, right: 0, bottom: 0, left: 0 };
+  const style = window.getComputedStyle(document.body);
+  return {
+    top: parseCssPx(style.paddingTop),
+    right: parseCssPx(style.paddingRight),
+    bottom: parseCssPx(style.paddingBottom),
+    left: parseCssPx(style.paddingLeft),
+  };
+}
+
+function parseCssPx(value: string): number {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
 }

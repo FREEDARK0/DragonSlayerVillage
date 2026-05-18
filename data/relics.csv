@@ -1,0 +1,20 @@
+id,label,color,iconKey,maxSelections,description
+village_heart,村庄之心,0xff6b6b,heart,,村庄生命 +50；下次选择本遗物时增加值 +50
+auto_missile,自动飞弹,0x5f8dd3,missile,1,每回合自动向生命最高的龙发射 1 枚与飞弹属性相同的飞弹
+night_shield,夜幕护盾,0x7f8cff,shield,1,每回合当前处于黑夜区域的友方建筑/单位获得护盾，抵御 1 次伤害
+wood_wall_hp,加固木墙,0xb98a3a,wall,1,【木墙】HP +10，已有和未来木墙都会生效
+wood_wall_death,爆裂木墙,0xd86a3a,burst,1,之后放置的【木墙】HP -5，最低为 1；【木墙】亡语：对扇区内敌人造成 20 点伤害
+wood_wall_night_stack,夜墙叠筑,0x8b6914,stack,1,【木墙】可以放置在处于黑夜中的友方建筑/单位上，使其 HP 增加等同木墙 HP 的值
+gold_mine_rally,金矿鼓舞,0xffaa00,gold,1,场上每个金矿每回合使 1 个随机友军获得 +1/+1
+gold_attack,金币激励,0xffd36e,coin_sword,1,获得金币时，随机 1 个友军获得 3 点攻击
+single_dragon_knight,决斗骑士,0x4488ff,knight,1,场上只有 1 只龙时，骑士通过旋转获取的加成翻倍
+pressure_gold,压力炼金,0x7d55c7,pressure,1,【压力石】放置后也会获得等同 HP 的金币
+friendly_growth,全军操练,0x74c96f,growth,1,所有友方每回合随机 +2 HP 或 +1 攻击力
+missile_extra_hit,连发飞弹,0x72b7ff,missile_plus,1,飞弹的触发次数 +1
+mine_attack,战斗矿场,0xa0a060,mine,1,【矿场】攻击 +3，每回合对自身相邻的金矿进行 1 次攻击
+gold_curse,贪婪契约,0xf0c84b,curse,1,每回合额外获得 40 金币；若回合结束时有剩余，村庄损失 20 生命
+dragon_bounty,屠龙赏金,0xffc857,dragon_coin,1,击杀任意龙时，村庄 +15 金币，+10 HP
+infantry_legacy,步兵传承,0x6fd48c,infantry,1,每次放置【步兵】时，使其获得当前传承值的 +HP/+攻击；初始为 1，步兵死亡时永久提升 1 点
+sell_copy,战术回收,0x9fd0ff,copy,1,出售任意友方后，在临时商店生成 1 个其基础复制；已有同名复制时不再生成
+militia_deathrattle,民兵遗愿,0xc7e68c,deathrattle,1,所有非亡语效果的友方具有亡语：在原扇区召唤 1 个 5/5 的【步兵】
+wounded_veterans,浴血精锐,0xf08a5d,veteran,1,【骑士】【步兵】【斥候】受伤后若存活，永久 +2 攻击

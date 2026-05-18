@@ -1,5 +1,5 @@
 import { Container, Graphics, Text } from 'pixi.js';
-import { GameRenderer } from '../rendering/GameRenderer';
+import { GameRenderer, RenderLayer } from '../rendering/GameRenderer';
 import { DragonState } from '../models/Dragon';
 import { DragonPersonalityType } from '../config/dragonTypes';
 
@@ -11,7 +11,7 @@ export class DragonInfoPanel {
     this.container = new Container();
     this.container.label = 'DragonInfoPanel';
     this.container.visible = false;
-    renderer.getLayer(5).addChild(this.container);
+    renderer.getLayer(RenderLayer.DRAGONS).addChild(this.container);
   }
 
   show(dragon: DragonState, x: number, y: number): void {
@@ -40,7 +40,7 @@ export class DragonInfoPanel {
       [DragonPersonalityType.GLUTTONOUS]: '贪食 - 白昼吞龙',
       [DragonPersonalityType.DESTRUCTIVE]: '破坏 - 击破追击',
       [DragonPersonalityType.GOLD]: '黄金 - 随机金矿',
-      [DragonPersonalityType.WYVERN]: '亚龙 - 受伤后离开',
+      [DragonPersonalityType.WYVERN]: '亚龙 - 受伤后战斗完离开',
       [DragonPersonalityType.BRUTAL]: '火龙 - 生成龙焰',
     };
     const persText = new Text({

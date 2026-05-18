@@ -1,5 +1,5 @@
 import { Container, Filter, GlProgram, Graphics, Text, UniformGroup } from 'pixi.js';
-import { GameRenderer } from './GameRenderer';
+import { GameRenderer, RenderLayer } from './GameRenderer';
 import { sectorAngle, sectorStartAngle, sectorEndAngle } from '../utils/SectorUtils';
 
 const FILTER_VERTEX = `
@@ -132,11 +132,11 @@ export class EffectRenderer {
   constructor(private renderer: GameRenderer) {
     this.container = new Container();
     this.container.label = 'EffectRenderer';
-    renderer.getLayer(3).addChild(this.container);
+    renderer.getLayer(RenderLayer.BLOCKS).addChild(this.container);
 
     this.flashGraphics = new Graphics();
     this.flashGraphics.label = 'ScreenFlash';
-    renderer.getLayer(6).addChild(this.flashGraphics);
+    renderer.getLayer(RenderLayer.UI).addChild(this.flashGraphics);
   }
 
   // ─── Public API ───────────────────────────

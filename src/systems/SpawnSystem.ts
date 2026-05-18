@@ -1,15 +1,19 @@
+import { GameState } from '../core/GameState';
 import { OctagonBoard } from '../core/OctagonBoard';
 import { DragonState, createDragon, resetDragonForSpawn } from '../models/Dragon';
 import { DragonTemplate, getAvailableDragons } from '../config/dragonTypes';
 import { createBlock, createPowerStone } from '../models/Block';
 import { BlockType } from '../config/blockTypes';
-import { randInt, shuffle, weightedPick } from '../utils/random';
+import { defaultRandomSource, RandomSource, randomShuffle, randomWeightedPick } from '../utils/random';
+import { RelicSystem } from './RelicSystem';
 
 export class SpawnSystem {
+  constructor(private random: RandomSource = defaultRandomSource) {}
+
   /** 初始布局：3金矿 + 2木墙 + 3空，村庄在中心 */
   initMap(board: OctagonBoard): number {
-    const indices = shuffle([0,1,2,3,4,5,6,7]);
-    for (let i = 0; i < 3; i++) board.setSector(indices[i], createPowerStone());
+    const indices = randomShuffle([0,1,2,3,4,5,6,7], this.random);
+    for (let i = 0; i < 3; i++) board.setSector(indices[i], createPowerStone(this.random.int(1, 20)));
     for (let i = 3; i < 5; i++) board.setSector(indices[i], createBlock(BlockType.WOOD_WALL));
     return 0;
   }
@@ -17,7 +21,7 @@ export class SpawnSystem {
   replenishBlock(board: OctagonBoard, sector: number): void {
     if (board.isEmpty(sector)) {
       const types = [BlockType.KNIGHT, BlockType.MAGE, BlockType.WIZARD];
-      board.setSector(sector, createBlock(types[randInt(0, types.length - 1)]));
+      board.setSector(sector, createBlock(this.random.pick(types)));
     }
   }
 
@@ -31,7 +35,7 @@ export class SpawnSystem {
     const newDragons: DragonState[] = [];
     const available = getAvailableDragons(turnNumber);
     if (available.length === 0) return newDragons;
-    const count = randInt(countRange[0], countRange[1]);
+    const count = this.random.int(countRange[0], countRange[1]);
     const needed = count - existingDragons.filter(d => d.isAlive).length;
     if (needed <= 0) return newDragons;
     const usedEdges = new Set(existingDragons.filter(d => d.isAlive).map(d => d.edgeIndex));
@@ -41,11 +45,11 @@ export class SpawnSystem {
       if (candidates.length === 0) break;
       const free = [0,1,2,3,4,5,6,7].filter(e => !usedEdges.has(e));
       if (free.length === 0) break;
-      const template = weightedPick(candidates, candidates.map(d => d.spawnWeight));
+      const template = randomWeightedPick(candidates, candidates.map(d => d.spawnWeight), this.random);
       const preferred = preferredEdge?.(template, usedEdges);
       const edge = preferred !== null && preferred !== undefined && !usedEdges.has(preferred)
         ? preferred
-        : free[Math.floor(Math.random() * free.length)];
+        : this.random.pick(free);
       usedEdges.add(edge);
       liveByTemplate.set(template.id, (liveByTemplate.get(template.id) ?? 0) + 1);
       const reusable = readyByTemplate.get(template.id)?.shift();
@@ -62,6 +66,14 @@ export class SpawnSystem {
   checkDragonDepartures(dragons: DragonState[], maxStayTurns: number): DragonState[] {
     return dragons.filter(d => d.isAlive && d.turnCounter >= maxStayTurns);
   }
+}
+
+export function initMapForState(state: GameState, spawnSystem: SpawnSystem = new SpawnSystem()): number {
+  const villageSector = spawnSystem.initMap(state.board);
+  state.board.forEach(block => {
+    if (block) RelicSystem.applyGeneratedBlockModifiers(state, block);
+  });
+  return villageSector;
 }
 
 export function buildRespawnPools(dragons: DragonState[], nextTurn: number): {

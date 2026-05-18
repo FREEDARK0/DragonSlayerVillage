@@ -1,6 +1,6 @@
 import { DragonPersonalityType } from '../config/dragonTypes';
+import { BlockType } from '../config/blockTypes';
 import { DragonState } from '../models/Dragon';
-import { createGoldMine } from './BlockEffectRegistry';
 import { EffectContext } from './EffectContext';
 
 export interface DragonBehaviorDefinition {
@@ -109,10 +109,13 @@ registerDragonBehavior({
     return `${dragon.name}洒下金色吐息！`;
   },
   onEmptySectorHit(_dragon, sector, _damage, ctx) {
-    if (!ctx.board.getSector(sector)) ctx.board.setSector(sector, createGoldMine());
+    createGoldMineOnEmptySector(sector, ctx);
+  },
+  afterBlockDestroyed(_dragon, sector, ctx) {
+    createGoldMineOnEmptySector(sector, ctx);
   },
   effectDescriptions() {
-    return ['吐息命中空地并造成伤害后，该空地生成 1 个金矿'];
+    return ['吐息命中空地或击破建筑/单位后，若该扇区为空则生成 1 个金矿'];
   },
 });
 
@@ -128,7 +131,7 @@ registerDragonBehavior({
     return dragon.hasTakenDamage;
   },
   effectDescriptions(dragon) {
-    return [`受伤后离开（${dragon.hasTakenDamage ? '已受伤' : '尚未受伤'}）`];
+    return [`受伤后在本回合战斗结算完离开（${dragon.hasTakenDamage ? '已受伤' : '尚未受伤'}）`];
   },
 });
 
@@ -141,10 +144,16 @@ registerDragonBehavior({
     return `${dragon.name}喷吐龙焰！`;
   },
   effectDescriptions() {
-    return ['攻击结算后，在攻击范围空地生成 10 HP 龙焰', '已有龙焰则 +10 HP'];
+    return ['攻击结算后，在攻击范围空地生成 10 HP 龙焰'];
   },
 });
 
 function breathPowerFromSectorRange(range: number): number {
   return Math.max(1, Math.ceil(range / 2));
+}
+
+function createGoldMineOnEmptySector(sector: number, ctx: EffectContext): void {
+  if (ctx.board.getSector(sector)) return;
+  ctx.board.setSector(sector, ctx.blockFactory.createPowerStone());
+  ctx.events.emit('blockCreated', { sector, blockType: BlockType.POWER_STONE, source: 'gold_dragon' });
 }

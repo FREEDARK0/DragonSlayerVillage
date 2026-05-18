@@ -10,7 +10,7 @@ export const GENERATED_DRAGON_DATA = [
     "unlockTurn": 1,
     "spawnWeight": 4,
     "quantity": 3,
-    "description": "受伤后离开",
+    "description": "受伤后在本回合战斗结算完离开",
     "growth": [
       {
         "round": 1,
@@ -46,14 +46,14 @@ export const GENERATED_DRAGON_DATA = [
   },
   {
     "id": "aurus",
-    "name": "奥鲁斯",
+    "name": "黄金龙",
     "personality": "gold",
     "breathRange": 1,
     "color": 16763904,
     "unlockTurn": 2,
     "spawnWeight": 3,
     "quantity": 2,
-    "description": "吐息命中空地并造成伤害后生成金矿",
+    "description": "吐息命中空地或击破建筑/单位后若扇区为空则生成金矿",
     "growth": [
       {
         "round": 1,
@@ -89,7 +89,7 @@ export const GENERATED_DRAGON_DATA = [
   },
   {
     "id": "furo",
-    "name": "弗罗",
+    "name": "破坏龙",
     "personality": "destructive",
     "breathRange": 3,
     "color": 8930508,
@@ -100,39 +100,39 @@ export const GENERATED_DRAGON_DATA = [
     "growth": [
       {
         "round": 1,
-        "attack": 10,
+        "attack": 5,
         "hp": 30
       },
       {
         "round": 2,
-        "attack": 13,
+        "attack": 8,
         "hp": 42
       },
       {
         "round": 3,
-        "attack": 18,
-        "hp": 66
+        "attack": 10,
+        "hp": 60
       },
       {
         "round": 4,
-        "attack": 25,
-        "hp": 114
+        "attack": 13,
+        "hp": 75
       },
       {
         "round": 5,
-        "attack": 35,
-        "hp": 180
+        "attack": 16,
+        "hp": 100
       },
       {
         "round": 6,
-        "attack": 50,
-        "hp": 288
+        "attack": 23,
+        "hp": 130
       }
     ]
   },
   {
     "id": "ignis",
-    "name": "伊格尼斯",
+    "name": "高傲龙",
     "personality": "arrogant",
     "breathRange": 3,
     "color": 16729156,
@@ -143,39 +143,39 @@ export const GENERATED_DRAGON_DATA = [
     "growth": [
       {
         "round": 1,
-        "attack": 5,
-        "hp": 40
+        "attack": 3,
+        "hp": 20
       },
       {
         "round": 2,
-        "attack": 8,
-        "hp": 56
+        "attack": 5,
+        "hp": 30
       },
       {
         "round": 3,
-        "attack": 13,
-        "hp": 88
+        "attack": 8,
+        "hp": 45
       },
       {
         "round": 4,
-        "attack": 20,
-        "hp": 152
+        "attack": 13,
+        "hp": 60
       },
       {
         "round": 5,
-        "attack": 30,
-        "hp": 240
+        "attack": 18,
+        "hp": 100
       },
       {
         "round": 6,
-        "attack": 45,
-        "hp": 384
+        "attack": 25,
+        "hp": 150
       }
     ]
   },
   {
     "id": "gulo",
-    "name": "古洛",
+    "name": "贪食龙",
     "personality": "gluttonous",
     "breathRange": 3,
     "color": 16746564,
@@ -218,14 +218,14 @@ export const GENERATED_DRAGON_DATA = [
   },
   {
     "id": "brutus",
-    "name": "布鲁图斯",
+    "name": "火龙",
     "personality": "brutal",
     "breathRange": 1,
     "color": 13378082,
     "unlockTurn": 10,
     "spawnWeight": 2,
     "quantity": 1,
-    "description": "攻击结算后在范围空地生成 10 HP 龙焰；已有龙焰则 +10 HP",
+    "description": "攻击结算后在范围空地生成 10 HP 龙焰",
     "growth": [
       {
         "round": 1,
@@ -322,8 +322,7 @@ export const GENERATED_ITEM_DATA = [
       "法术"
     ],
     "description": [
-      "对选择目标造成 5 点伤害",
-      "每个法师增加 1 次效果并附加攻击力"
+      "对选择目标造成 5 点伤害"
     ]
   },
   {
@@ -425,7 +424,7 @@ export const GENERATED_ITEM_DATA = [
       "随机"
     ],
     "description": [
-      "有任意龙进入/离开此扇区时，地刺会攻击它"
+      "有任意龙进入/离开此扇区时，地刺也会攻击它"
     ]
   },
   {
@@ -589,9 +588,7 @@ export const GENERATED_ITEM_DATA = [
       "随机"
     ],
     "description": [
-      "所有法术伤害附加自身攻击力",
-      "飞弹增加 1 次效果，可叠加",
-      "每回合 +1 攻击力"
+      "每回合使商店中的飞弹+2临时攻击力。"
     ]
   },
   {
@@ -611,8 +608,8 @@ export const GENERATED_ITEM_DATA = [
       "随机"
     ],
     "description": [
-      "死亡时在随机空位召唤记录击杀者的巫毒娃娃",
-      "巫毒娃娃受到的伤害也会作用于记录目标"
+      "若放置的扇区中有龙，在临时槽生成 1 张 5 金币的【驱离】",
+      "驱离只能影响生成时绑定类型的龙"
     ]
   },
   {
@@ -633,6 +630,27 @@ export const GENERATED_ITEM_DATA = [
     ],
     "description": [
       "两边相邻扇区的友方攻击时，自身也对其目标攻击 1 次"
+    ]
+  },
+  {
+    "id": "block:scout",
+    "kind": "block",
+    "blockType": "scout",
+    "spellType": "",
+    "label": "斥候",
+    "cost": 25,
+    "hp": 0,
+    "attack": 10,
+    "color": 6987976,
+    "purchasable": true,
+    "baseShop": false,
+    "randomShop": true,
+    "tags": [
+      "随机"
+    ],
+    "description": [
+      "放置后获得左右相邻扇区各一半 HP（向下取整）",
+      "下一条新出现的龙必定出现在此扇区"
     ]
   },
   {
@@ -741,6 +759,148 @@ export const GENERATED_ITEM_DATA = [
     ]
   },
   {
+    "id": "spell:apple",
+    "kind": "spell",
+    "blockType": "",
+    "spellType": "apple",
+    "label": "苹果",
+    "cost": 15,
+    "hp": 0,
+    "attack": 0,
+    "color": 14241597,
+    "purchasable": true,
+    "baseShop": false,
+    "randomShop": true,
+    "tags": [
+      "随机",
+      "法术"
+    ],
+    "description": [
+      "使 1 个友方建筑/单位永久获得 +3/+3"
+    ]
+  },
+  {
+    "id": "block:ghost",
+    "kind": "block",
+    "blockType": "ghost",
+    "spellType": "",
+    "label": "幽灵",
+    "cost": 20,
+    "hp": 15,
+    "attack": 5,
+    "color": 12572671,
+    "purchasable": true,
+    "baseShop": false,
+    "randomShop": true,
+    "tags": [
+      "随机"
+    ],
+    "description": [
+      "在黑夜区域时，具有亡语：在此扇区召唤 1 只 1 HP 幽灵，并获得自身攻击"
+    ]
+  },
+  {
+    "id": "block:goblin",
+    "kind": "block",
+    "blockType": "goblin",
+    "spellType": "",
+    "label": "地精",
+    "cost": 15,
+    "hp": 15,
+    "attack": 8,
+    "color": 8044367,
+    "purchasable": true,
+    "baseShop": false,
+    "randomShop": true,
+    "tags": [
+      "随机"
+    ],
+    "description": [
+      "放置后：你购买的下一个商品金币消耗 -10"
+    ]
+  },
+  {
+    "id": "block:priest",
+    "kind": "block",
+    "blockType": "priest",
+    "spellType": "",
+    "label": "牧师",
+    "cost": 30,
+    "hp": 20,
+    "attack": 3,
+    "color": 16180904,
+    "purchasable": true,
+    "baseShop": false,
+    "randomShop": true,
+    "tags": [
+      "随机"
+    ],
+    "description": [
+      "在白天区域时，每回合使村庄获得 3 点治疗"
+    ]
+  },
+  {
+    "id": "block:market",
+    "kind": "block",
+    "blockType": "market",
+    "spellType": "",
+    "label": "市场",
+    "cost": 20,
+    "hp": 25,
+    "attack": 0,
+    "color": 14721882,
+    "purchasable": true,
+    "baseShop": false,
+    "randomShop": true,
+    "tags": [
+      "随机"
+    ],
+    "description": [
+      "每回合可以免费刷新 1 次"
+    ]
+  },
+  {
+    "id": "spell:magic_book",
+    "kind": "spell",
+    "blockType": "",
+    "spellType": "magic_book",
+    "label": "魔法书",
+    "cost": 15,
+    "hp": 0,
+    "attack": 0,
+    "color": 8308991,
+    "purchasable": true,
+    "baseShop": false,
+    "randomShop": true,
+    "tags": [
+      "随机",
+      "法术"
+    ],
+    "description": [
+      "购买后，获得 2 张临时的随机法术"
+    ]
+  },
+  {
+    "id": "spell:repel",
+    "kind": "spell",
+    "blockType": "",
+    "spellType": "repel",
+    "label": "驱离",
+    "cost": 0,
+    "hp": 0,
+    "attack": 0,
+    "color": 10940671,
+    "purchasable": false,
+    "baseShop": false,
+    "randomShop": false,
+    "tags": [
+      "法术"
+    ],
+    "description": [
+      "驱赶与生成时绑定类型相同的龙，使其离开"
+    ]
+  },
+  {
     "id": "block:power_stone",
     "kind": "block",
     "blockType": "power_stone",
@@ -795,7 +955,8 @@ export const GENERATED_ITEM_DATA = [
     "tags": [],
     "description": [
       "每回合对村庄造成等同 HP 的伤害",
-      "建筑/单位放到龙焰上会改为削减龙焰 HP"
+      "建筑/单位放到龙焰上会改为削减龙焰 HP",
+      "受到龙攻击时增加等同龙攻击力的 HP，龙攻击会穿透并伤害村庄"
     ]
   },
   {
@@ -814,6 +975,204 @@ export const GENERATED_ITEM_DATA = [
     "tags": [],
     "description": [
       "暂无效果"
+    ]
+  }
+] as const;
+
+export const GENERATED_RELIC_DATA = [
+  {
+    "id": "village_heart",
+    "label": "村庄之心",
+    "color": 16739179,
+    "iconKey": "heart",
+    "maxSelections": null,
+    "description": [
+      "村庄生命 +50",
+      "下次选择本遗物时增加值 +50"
+    ]
+  },
+  {
+    "id": "auto_missile",
+    "label": "自动飞弹",
+    "color": 6262227,
+    "iconKey": "missile",
+    "maxSelections": 1,
+    "description": [
+      "每回合自动向生命最高的龙发射 1 枚与飞弹属性相同的飞弹"
+    ]
+  },
+  {
+    "id": "night_shield",
+    "label": "夜幕护盾",
+    "color": 8359167,
+    "iconKey": "shield",
+    "maxSelections": 1,
+    "description": [
+      "每回合当前处于黑夜区域的友方建筑/单位获得护盾，抵御 1 次伤害"
+    ]
+  },
+  {
+    "id": "wood_wall_hp",
+    "label": "加固木墙",
+    "color": 12159546,
+    "iconKey": "wall",
+    "maxSelections": 1,
+    "description": [
+      "【木墙】HP +10，已有和未来木墙都会生效"
+    ]
+  },
+  {
+    "id": "wood_wall_death",
+    "label": "爆裂木墙",
+    "color": 14182970,
+    "iconKey": "burst",
+    "maxSelections": 1,
+    "description": [
+      "之后放置的【木墙】HP -5，最低为 1",
+      "【木墙】亡语：对扇区内敌人造成 20 点伤害"
+    ]
+  },
+  {
+    "id": "wood_wall_night_stack",
+    "label": "夜墙叠筑",
+    "color": 9136404,
+    "iconKey": "stack",
+    "maxSelections": 1,
+    "description": [
+      "【木墙】可以放置在处于黑夜中的友方建筑/单位上，使其 HP 增加等同木墙 HP 的值"
+    ]
+  },
+  {
+    "id": "gold_mine_rally",
+    "label": "金矿鼓舞",
+    "color": 16755200,
+    "iconKey": "gold",
+    "maxSelections": 1,
+    "description": [
+      "场上每个金矿每回合使 1 个随机友军获得 +1/+1"
+    ]
+  },
+  {
+    "id": "gold_attack",
+    "label": "金币激励",
+    "color": 16765806,
+    "iconKey": "coin_sword",
+    "maxSelections": 1,
+    "description": [
+      "获得金币时，随机 1 个友军获得 3 点攻击"
+    ]
+  },
+  {
+    "id": "single_dragon_knight",
+    "label": "决斗骑士",
+    "color": 4491519,
+    "iconKey": "knight",
+    "maxSelections": 1,
+    "description": [
+      "场上只有 1 只龙时，骑士通过旋转获取的加成翻倍"
+    ]
+  },
+  {
+    "id": "pressure_gold",
+    "label": "压力炼金",
+    "color": 8213959,
+    "iconKey": "pressure",
+    "maxSelections": 1,
+    "description": [
+      "【压力石】放置后也会获得等同 HP 的金币"
+    ]
+  },
+  {
+    "id": "friendly_growth",
+    "label": "全军操练",
+    "color": 7653743,
+    "iconKey": "growth",
+    "maxSelections": 1,
+    "description": [
+      "所有友方每回合随机 +2 HP 或 +1 攻击力"
+    ]
+  },
+  {
+    "id": "missile_extra_hit",
+    "label": "连发飞弹",
+    "color": 7518207,
+    "iconKey": "missile_plus",
+    "maxSelections": 1,
+    "description": [
+      "飞弹的触发次数 +1"
+    ]
+  },
+  {
+    "id": "mine_attack",
+    "label": "战斗矿场",
+    "color": 10526816,
+    "iconKey": "mine",
+    "maxSelections": 1,
+    "description": [
+      "【矿场】攻击 +3，每回合对自身相邻的金矿进行 1 次攻击"
+    ]
+  },
+  {
+    "id": "gold_curse",
+    "label": "贪婪契约",
+    "color": 15779915,
+    "iconKey": "curse",
+    "maxSelections": 1,
+    "description": [
+      "每回合额外获得 40 金币",
+      "若回合结束时有剩余，村庄损失 20 生命"
+    ]
+  },
+  {
+    "id": "dragon_bounty",
+    "label": "屠龙赏金",
+    "color": 16762967,
+    "iconKey": "dragon_coin",
+    "maxSelections": 1,
+    "description": [
+      "击杀任意龙时，村庄 +15 金币，+10 HP"
+    ]
+  },
+  {
+    "id": "infantry_legacy",
+    "label": "步兵传承",
+    "color": 7328908,
+    "iconKey": "infantry",
+    "maxSelections": 1,
+    "description": [
+      "每次放置【步兵】时，使其获得当前传承值的 +HP/+攻击",
+      "初始为 1，步兵死亡时永久提升 1 点"
+    ]
+  },
+  {
+    "id": "sell_copy",
+    "label": "战术回收",
+    "color": 10473727,
+    "iconKey": "copy",
+    "maxSelections": 1,
+    "description": [
+      "出售任意友方后，在临时商店生成 1 个其基础复制",
+      "已有同名复制时不再生成"
+    ]
+  },
+  {
+    "id": "militia_deathrattle",
+    "label": "民兵遗愿",
+    "color": 13100684,
+    "iconKey": "deathrattle",
+    "maxSelections": 1,
+    "description": [
+      "所有非亡语效果的友方具有亡语：在原扇区召唤 1 个 5/5 的【步兵】"
+    ]
+  },
+  {
+    "id": "wounded_veterans",
+    "label": "浴血精锐",
+    "color": 15764061,
+    "iconKey": "veteran",
+    "maxSelections": 1,
+    "description": [
+      "【骑士】【步兵】【斥候】受伤后若存活，永久 +2 攻击"
     ]
   }
 ] as const;

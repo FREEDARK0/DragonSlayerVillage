@@ -2,11 +2,9 @@ import { DragonState, markDragonDefeated, markDragonDeparted } from '../models/D
 import { OctagonBoard } from '../core/OctagonBoard';
 import { DragonActionType, DragonAction } from './actions/DragonAction';
 import { BreathAttack } from './actions/BreathAttack';
-import { EventBus } from '../core/EventBus';
 import { createEffectContext, EffectContext } from '../effects/EffectContext';
 import {
   applyBreathHit,
-  createDragonFire,
   damageBlockInContext,
   damageDragon,
   getBlockAttack,
@@ -18,6 +16,10 @@ import { GameState } from '../core/GameState';
 import { DragonPersonalityType } from '../config/dragonTypes';
 import { BlockType } from '../config/blockTypes';
 import { BlockData } from '../models/Block';
+import { CombatSimulationPolicy } from '../systems/CombatSimulationTypes';
+import { boardSectorToWorldEdge } from '../utils/SectorUtils';
+import { combatPacingMs, waitForCombatPacing } from '../systems/CombatPacing';
+import { RelicSystem } from '../systems/RelicSystem';
 
 export interface DragonDecision {
   dragon: DragonState;
@@ -44,9 +46,8 @@ export class DragonAI {
     this.actions.set(DragonActionType.BREATH, new BreathAttack());
   }
 
-  async executeTurn(state: GameState, rotationDeg: number = state.rotationAngle): Promise<DragonDecision[]> {
+  async executeTurn(state: GameState, rotationDeg: number = state.rotationAngle, ctx: EffectContext = createEffectContext(state), policy: CombatSimulationPolicy = ctx.simulationPolicy ?? {}): Promise<DragonDecision[]> {
     const board = state.board;
-    const ctx = createEffectContext(state);
     const decisions: DragonDecision[] = [];
     const rotSteps = Math.round(rotationDeg / 45);
 
@@ -54,20 +55,30 @@ export class DragonAI {
     for (const dragon of actionQueue) {
       if (state.skipRemainingDragonActions) break;
       if (!dragon.isAlive) continue;
+      if (dragon.readyToAttackTurn > state.turnNumber) {
+        policy.trace?.({ phase: 'dragonOffense', source: dragon.name, dragonId: dragon.id, skipped: true, message: 'dragon waiting for first visible turn' });
+        continue;
+      }
+      if (policy.canDragonOffense && !policy.canDragonOffense(dragon, ctx)) {
+        policy.trace?.({ phase: 'dragonOffense', source: dragon.name, dragonId: dragon.id, skipped: true, message: 'dragon offense skipped by policy' });
+        continue;
+      }
       const behavior = getDragonBehavior(dragon.personality);
       const action = this.actions.get(DragonActionType.BREATH)!;
       let attacked = false;
       let chainCount = 0;
 
       while (dragon.isAlive && chainCount < 8 && !state.skipRemainingDragonActions) {
+        await waitForCombatPacing(policy, 'dragonAction');
         const logicalEdge = ((dragon.edgeIndex - rotSteps) % 8 + 8) % 8;
         const power = behavior.breathPower(dragon);
         const targetSectors = action.getAffectedSectors(logicalEdge, power);
+        policy.onDragonAttackTargets?.(dragon, targetSectors, ctx, DragonActionType.BREATH);
         const decision: DragonDecision = { dragon, actionType: DragonActionType.BREATH, targetSectors, description: behavior.describe(dragon, targetSectors) };
         decisions.push(decision);
         attacked = true;
 
-        const destroyedBlock = await this.executeDecision(decision, board, state.aliveDragons, ctx);
+        const destroyedBlock = await this.executeDecision(decision, board, state.aliveDragons, ctx, policy);
         if (dragon.personality !== DragonPersonalityType.DESTRUCTIVE || !destroyedBlock) break;
 
         moveDragonStepwise(dragon, 1, 1, ctx);
@@ -83,44 +94,69 @@ export class DragonAI {
     return decisions;
   }
 
-  private async executeDecision(dec: DragonDecision, board: OctagonBoard, allDragons: DragonState[], ctx: EffectContext): Promise<boolean> {
+  private async executeDecision(dec: DragonDecision, board: OctagonBoard, allDragons: DragonState[], ctx: EffectContext, policy: CombatSimulationPolicy): Promise<boolean> {
     const behavior = getDragonBehavior(dec.dragon.personality);
     let destroyedBlock = false;
     const centerSector = dec.targetSectors[Math.floor(dec.targetSectors.length / 2)];
 
-    EventBus.emit('dragonAttackStarted', { dragonId: dec.dragon.id, sectors: dec.targetSectors, actionType: dec.actionType, edgeIndex: dec.dragon.edgeIndex });
-    EventBus.emit('dragonBreathShockwave', { dragonId: dec.dragon.id, sectors: dec.targetSectors, edgeIndex: dec.dragon.edgeIndex, sourceSector: centerSector });
-    await waitForCombatAnimation(320);
+    ctx.events.emit('dragonAttackStarted', { dragonId: dec.dragon.id, sectors: dec.targetSectors, actionType: dec.actionType, edgeIndex: dec.dragon.edgeIndex });
+    ctx.events.emit('dragonBreathShockwave', { dragonId: dec.dragon.id, sectors: dec.targetSectors, edgeIndex: dec.dragon.edgeIndex, sourceSector: centerSector });
+    await waitForCombatAnimation(combatPacingMs(policy, 'dragonBreathStart'));
 
     for (const wave of buildSymmetricSectorWaves(dec.targetSectors)) {
       if (!dec.dragon.isAlive) break;
 
       const pendingHits: PendingBreathHit[] = [];
       for (const sector of wave) {
-        const block = board.getSector(sector) ?? this.moveSensingWallIntoEmptyHit(sector, board);
+        const block = board.getSector(sector) ?? this.moveSensingWallIntoEmptyHit(sector, board, ctx);
         if (!block) {
           pendingHits.push({ sector, damage: dec.dragon.attack, targetType: 'village', block: null });
           continue;
         }
-        if (dec.dragon.personality === DragonPersonalityType.BRUTAL && block.type === BlockType.DRAGON_FIRE) continue;
         pendingHits.push({ sector, damage: dec.dragon.attack, targetType: 'block', blockType: block.type, block });
       }
 
       if (pendingHits.length === 0) continue;
-      EventBus.emit('breathSectorHitWave', { hits: pendingHits.map(toBreathHitVisual) });
-      await waitForCombatAnimation(95);
+      ctx.events.emit('breathSectorHitWave', { hits: pendingHits.map(toBreathHitVisual) });
+      await waitForCombatAnimation(combatPacingMs(policy, 'breathWave'));
 
       for (const hit of pendingHits) {
         if (!dec.dragon.isAlive) break;
         if (!hit.block) {
-          ctx.state.applyVillageHpDelta(-dec.dragon.attack);
+          ctx.applyVillageHpDelta(-dec.dragon.attack);
           behavior.onEmptySectorHit?.(dec.dragon, hit.sector, dec.dragon.attack, ctx);
+          continue;
+        }
+
+        if (hit.block.type === BlockType.DRAGON_FIRE) {
+          hit.block.hp += hit.damage;
+          ctx.applyVillageHpDelta(-hit.damage);
+          ctx.addMessage(`龙焰吸收吐息，HP +${hit.damage}`);
+          ctx.simulationPolicy?.trace?.({
+            phase: 'dragonOffense',
+            source: dec.dragon.name,
+            dragonId: dec.dragon.id,
+            sector: hit.sector,
+            value: hit.damage,
+            message: `dragon fire gained ${hit.damage} hp and village took breath damage`,
+          });
           continue;
         }
 
         applyBreathHit({ dragon: dec.dragon, sector: hit.sector, block: hit.block, damage: hit.damage, allDragons }, ctx);
         const result = damageBlockInContext(hit.block, hit.sector, hit.damage, ctx, { dragon: dec.dragon });
         dec.dragon.damageDealt += result.lostHp;
+        if (result.destroyed && result.overflowDamage > 0) {
+          ctx.applyVillageHpDelta(-result.overflowDamage);
+          ctx.simulationPolicy?.trace?.({
+            phase: 'dragonOffense',
+            source: dec.dragon.name,
+            dragonId: dec.dragon.id,
+            sector: hit.sector,
+            value: -result.overflowDamage,
+            message: `breath overflow dealt ${result.overflowDamage} village damage`,
+          });
+        }
         if (result.destroyed) {
           behavior.afterBlockDestroyed?.(dec.dragon, hit.sector, ctx);
           destroyedBlock = true;
@@ -132,30 +168,29 @@ export class DragonAI {
     }
 
     if (dec.dragon.personality === DragonPersonalityType.BRUTAL) {
-      this.applyBrutalDragonFire(dec.targetSectors, board);
+      this.applyBrutalDragonFire(dec.targetSectors, board, ctx);
     }
 
     return destroyedBlock;
   }
 
-  private moveSensingWallIntoEmptyHit(targetSector: number, board: OctagonBoard) {
+  private moveSensingWallIntoEmptyHit(targetSector: number, board: OctagonBoard, ctx: EffectContext) {
     const sourceSector = board.findSector(block => block?.type === BlockType.SENSING_WALL);
     if (sourceSector === null) return null;
     const wall = board.getSector(sourceSector);
     if (!wall) return null;
     board.removeBlock(sourceSector);
     board.setSector(targetSector, wall);
-    EventBus.emit('blockMoved', { from: sourceSector, to: targetSector, blockType: wall.type });
+    ctx.events.emit('blockMoved', { from: sourceSector, to: targetSector, blockType: wall.type });
     return wall;
   }
 
-  private applyBrutalDragonFire(sectors: number[], board: OctagonBoard): void {
+  private applyBrutalDragonFire(sectors: number[], board: OctagonBoard, ctx: EffectContext): void {
     for (const sector of sectors) {
       const block = board.getSector(sector);
       if (!block) {
-        board.setSector(sector, createDragonFire(10));
-      } else if (block.type === BlockType.DRAGON_FIRE) {
-        block.hp += 10;
+        board.setSector(sector, ctx.blockFactory.createDragonFire(10));
+        ctx.events.emit('blockCreated', { sector, blockType: BlockType.DRAGON_FIRE, source: 'brutal_dragon' });
       }
     }
   }
@@ -165,7 +200,7 @@ export class DragonAI {
     if (!dragon.isAlive) return;
 
     const target = allDragons
-      .filter(other => other.id !== dragon.id && other.isAlive && !ctx.isNight(other.edgeIndex))
+      .filter(other => other.id !== dragon.id && other.isAlive && !ctx.isWorldNight(other.edgeIndex))
       .sort((a, b) => {
         const da = circularDistance(a.edgeIndex, dragon.edgeIndex);
         const db = circularDistance(b.edgeIndex, dragon.edgeIndex);
@@ -177,6 +212,7 @@ export class DragonAI {
     const gainedHp = target.hp;
     const gainedAttack = target.attack;
     markDragonDefeated(target, ctx.state.turnNumber + 6);
+    RelicSystem.onDragonDefeated(target, ctx);
     dragon.hp += gainedHp;
     dragon.maxHp += gainedHp;
     dragon.attack += gainedAttack;
@@ -202,7 +238,7 @@ export class DragonAI {
   retargetArrogantDragon(dragon: DragonState, ctx: EffectContext): void {
     const targetSector = highestAttackFriendlySector(ctx);
     if (targetSector === null) return;
-    const edge = nearestFreeEdge(targetSector, ctx.state.aliveDragons, dragon);
+    const edge = nearestFreeEdge(boardSectorToWorldEdge(targetSector, ctx.state.rotationAngle), ctx.state.aliveDragons, dragon);
     if (edge !== null) dragon.edgeIndex = edge;
   }
 }
@@ -243,6 +279,7 @@ function dragonActionOrder(edgeIndex: number): number {
 }
 
 function waitForCombatAnimation(ms: number): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
   if (typeof window === 'undefined') return Promise.resolve();
   return new Promise(resolve => window.setTimeout(resolve, ms));
 }

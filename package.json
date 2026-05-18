@@ -7,10 +7,12 @@
     "generate:data": "node tools/generate-data.mjs",
     "dev": "vite --open",
     "build": "npm run generate:data && tsc && vite build",
+    "export:static": "node tools/export-static.mjs",
     "test:logic": "npm run generate:data && playwright test --config playwright.logic.config.ts",
     "test:quick": "npm run test:logic",
     "test:ui": "npm run generate:data && node tools/run-playwright-ui.mjs",
     "test:e2e": "npm run test:logic && npm run test:ui",
+    "sim": "npm run generate:data && node tools/run-simulation.mjs",
     "preview": "vite preview",
     "start": "vite --open"
   },

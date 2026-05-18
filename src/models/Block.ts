@@ -20,6 +20,10 @@ export interface BlockData {
 
 let nextBlockId = 1;
 
+export function resetBlockIdCounter(nextId: number = 1): void {
+  nextBlockId = nextId;
+}
+
 export function createBlock(type: BlockType, hp?: number, attack?: number): BlockData {
   const def = BLOCK_TYPE_TABLE[type];
   return {

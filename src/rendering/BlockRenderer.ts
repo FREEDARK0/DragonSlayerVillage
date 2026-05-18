@@ -1,12 +1,13 @@
 import { Container, Graphics, Text } from 'pixi.js';
 import { OctagonBoard } from '../core/OctagonBoard';
-import { GameRenderer } from './GameRenderer';
+import { GameRenderer, RenderLayer } from './GameRenderer';
 import { BLOCK_TYPE_TABLE } from '../config/blockTypes';
 import { SECTOR_COUNT, sectorAngle, sectorEndAngle, sectorStartAngle } from '../utils/SectorUtils';
 import { BlockAnimation } from './EffectRenderer';
 import { drawBlockVisual } from './BlockVisualRegistry';
 import { getBlockAttack } from '../effects/BlockEffectRegistry';
 import { EffectContext } from '../effects/EffectContext';
+import { formatStatDelta, StatPreviewDelta, statDeltaColor, PREVIEW_NEGATIVE_COLOR } from '../ui/StatPreview';
 
 const ATTACK_COLOR = 0xd94b4b;
 const HP_COLOR = 0x22c7d7;
@@ -18,10 +19,10 @@ export class BlockRenderer {
   constructor(private renderer: GameRenderer) {
     this.container = new Container();
     this.container.label = 'BlockRenderer';
-    renderer.getLayer(3).addChild(this.container);
+    renderer.getLayer(RenderLayer.BLOCKS).addChild(this.container);
     this.statContainer = new Container();
     this.statContainer.label = 'BlockStatBars';
-    renderer.getLayer(3).addChild(this.statContainer);
+    renderer.getLayer(RenderLayer.BLOCKS).addChild(this.statContainer);
   }
 
   render(
@@ -30,6 +31,7 @@ export class BlockRenderer {
     rotationDeg: number = 0,
     powerAnims?: Map<string, BlockAnimation>,
     effectContext?: EffectContext,
+    previewDeltas?: Map<number, StatPreviewDelta>,
   ): void {
     this.container.removeChildren();
     this.statContainer.removeChildren();
@@ -61,6 +63,15 @@ export class BlockRenderer {
       g.label = `Block-${block.type}[${i}]`;
       bc.addChild(g);
 
+      if (block.shielded) {
+        const shield = new Graphics();
+        shield.circle(0, 0, s * 0.78);
+        shield.fill({ color: 0x9fd7ff, alpha: 0.16 });
+        shield.stroke({ width: 2.5, color: 0xd8f6ff, alpha: 0.9 });
+        shield.eventMode = 'none';
+        bc.addChild(shield);
+      }
+
       const labelText = new Text({
         text: BLOCK_TYPE_TABLE[block.type].label,
         style: {
@@ -86,6 +97,7 @@ export class BlockRenderer {
         block.hp,
         animAlpha,
         powerAnims,
+        previewDeltas?.get(i),
       );
 
       this.container.addChild(bc);
@@ -100,6 +112,7 @@ export class BlockRenderer {
     hp: number,
     alpha: number,
     powerAnims?: Map<string, BlockAnimation>,
+    previewDelta?: StatPreviewDelta,
   ): void {
     const cxOct = this.renderer.octagonCenterX;
     const cyOct = this.renderer.octagonCenterY;
@@ -148,6 +161,7 @@ export class BlockRenderer {
     const hpText = this.addStatText(this.statContainer, `${hp}`, hpPos.x, hpPos.y, fontSize, alpha);
     hpText.scale.set(hpAnim?.scaleX ?? 1, hpAnim?.scaleY ?? 1);
     hpText.label = 'Value-HP';
+    this.addPreviewTexts(width, barAngle, attackPos, hpPos, fontSize, alpha, previewDelta);
   }
 
   private addStatText(container: Container, text: string, x: number, y: number, fontSize: number, alpha: number): Text {
@@ -168,6 +182,57 @@ export class BlockRenderer {
     label.eventMode = 'none';
     container.addChild(label);
     return label;
+  }
+
+  private addPreviewTexts(
+    barWidth: number,
+    barAngle: number,
+    attackPos: { x: number; y: number },
+    hpPos: { x: number; y: number },
+    fontSize: number,
+    alpha: number,
+    previewDelta?: StatPreviewDelta,
+  ): void {
+    if (!previewDelta) return;
+    if (previewDelta.attackDelta !== 0) {
+      const pos = this.offsetAlongBar(attackPos, barWidth * 0.13, barAngle);
+      this.addPreviewText(formatStatDelta(previewDelta.attackDelta), pos.x, pos.y, fontSize + 1, alpha, statDeltaColor(previewDelta.attackDelta));
+    }
+    if (previewDelta.willDie) {
+      const pos = this.offsetAlongBar(hpPos, barWidth * 0.13, barAngle);
+      this.addPreviewText('X', pos.x, pos.y, fontSize + 4, alpha, PREVIEW_NEGATIVE_COLOR);
+      return;
+    }
+    if (previewDelta.hpDelta !== 0) {
+      const pos = this.offsetAlongBar(hpPos, barWidth * 0.13, barAngle);
+      this.addPreviewText(formatStatDelta(previewDelta.hpDelta), pos.x, pos.y, fontSize + 1, alpha, statDeltaColor(previewDelta.hpDelta));
+    }
+  }
+
+  private addPreviewText(text: string, x: number, y: number, fontSize: number, alpha: number, fill: number): Text {
+    const label = new Text({
+      text,
+      style: {
+        fontFamily: 'Arial',
+        fontSize,
+        fill,
+        fontWeight: 'bold',
+        stroke: { color: 0x000000, width: 5 },
+      },
+    });
+    label.anchor.set(0, 0.5);
+    label.position.set(x, y);
+    label.alpha = alpha;
+    label.eventMode = 'none';
+    this.statContainer.addChild(label);
+    return label;
+  }
+
+  private offsetAlongBar(pos: { x: number; y: number }, distance: number, angle: number): { x: number; y: number } {
+    return {
+      x: pos.x + Math.cos(angle) * distance,
+      y: pos.y + Math.sin(angle) * distance,
+    };
   }
 
   private rotatedPoint(cx: number, cy: number, localX: number, localY: number, angle: number): { x: number; y: number } {

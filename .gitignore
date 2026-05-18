@@ -1,6 +1,11 @@
 node_modules/
 dist/
+dist-static/
+dist-static.zip
+DragonSlayerVillage.zip
 .vite/
 test-results/
 playwright-report/
 *.local
+.sim-build/
+runs/

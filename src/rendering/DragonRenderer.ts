@@ -1,11 +1,13 @@
 import { Assets, Circle, Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
-import { GameRenderer } from './GameRenderer';
+import { GameRenderer, RenderLayer } from './GameRenderer';
 import { DragonState } from '../models/Dragon';
 import { DragonPersonalityType } from '../config/dragonTypes';
 import { DRAGON_TEMPLATES } from '../config/dragonTypes';
 import { edgeBreathSectors, sectorStartAngle, sectorEndAngle } from '../utils/SectorUtils';
 import { getDragonBehavior } from '../effects/DragonBehaviorRegistry';
 import { TooltipPanel } from '../ui/TooltipPanel';
+import { formatStatDelta, PREVIEW_NEGATIVE_COLOR, StatPreviewDelta, statDeltaColor } from '../ui/StatPreview';
+import { bindPressable } from '../ui/PressInteractions';
 
 const ATTACK_COLOR = 0xd94b4b;
 const HP_COLOR = 0x22c7d7;
@@ -94,18 +96,21 @@ export class DragonRenderer {
   private dragonVisuals: Map<string, DragonVisualState> = new Map();
   private previewOutline: Graphics;
   private tooltip: TooltipPanel;
+  private hoveredDragonId: string | null = null;
   private rotationDeg = 0;
   private visualTime = 0;
+  onDragonClicked: ((dragonId: string, event?: { pointerId?: number; type?: string }) => void) | null = null;
+  onDragonPointerActivity: ((event?: { pointerId?: number; type?: string }) => void) | null = null;
 
   constructor(private renderer: GameRenderer) {
     this.container = new Container();
     this.container.label = 'DragonRenderer';
     this.container.eventMode = 'static';
-    renderer.getLayer(5).addChild(this.container);
+    renderer.getLayer(RenderLayer.DRAGONS).addChild(this.container);
 
     this.previewOutline = new Graphics();
     this.previewOutline.label = 'DragonPreviewOutline';
-    renderer.getLayer(3).addChild(this.previewOutline);
+    renderer.getLayer(RenderLayer.BLOCKS).addChild(this.previewOutline);
 
     this.tooltip = new TooltipPanel(renderer, 'DragonTooltip');
     this.renderer.app.ticker.add(this.updateVisuals, this);
@@ -130,6 +135,7 @@ export class DragonRenderer {
     this.renderedDragons.clear();
     this.dragonAssetNames.clear();
     this.dragonVisuals.clear();
+    this.hoveredDragonId = null;
     this.previewOutline.clear();
     this.tooltip.hide();
   }
@@ -140,6 +146,8 @@ export class DragonRenderer {
     nightStart?: number,
     nightLen?: number,
     statAnims?: Map<string, { scaleX: number; scaleY: number }>,
+    previewDeltas?: Map<string, StatPreviewDelta>,
+    currentTurnNumber: number = 0,
   ): void {
     this.rotationDeg = rotationDeg;
     const nightSet = new Set<number>();
@@ -158,6 +166,7 @@ export class DragonRenderer {
         this.renderedDragons.delete(id);
         this.dragonAssetNames.delete(id);
         this.dragonVisuals.delete(id);
+        if (this.hoveredDragonId === id) this.hoveredDragonId = null;
       }
     }
 
@@ -177,6 +186,10 @@ export class DragonRenderer {
         if (existing) existing.visible = false;
         this.renderedDragons.delete(dragon.id);
         this.dragonAssetNames.delete(dragon.id);
+        if (this.hoveredDragonId === dragon.id) {
+          this.hoveredDragonId = null;
+          this.hideDragonTooltip();
+        }
         continue;
       }
 
@@ -199,18 +212,22 @@ export class DragonRenderer {
           baseY: y,
         });
 
-        dContainer.on('pointerover', () => {
-          const current = this.renderedDragons.get(dragon.id)?.dragon ?? dragon;
-          const visual = this.dragonVisuals.get(dragon.id);
-          if (visual) visual.hovered = true;
-          this.drawPreviewOutline(current);
-          this.showDragonTooltip(current, dContainer!.position.x, dContainer!.position.y);
-        });
-        dContainer.on('pointerout', () => {
-          const visual = this.dragonVisuals.get(dragon.id);
-          if (visual) visual.hovered = false;
-          this.previewOutline.clear();
-          this.hideDragonTooltip();
+        bindPressable(dContainer, {
+          onPointerActivity: (event) => this.onDragonPointerActivity?.(event),
+          onPress: (event) => {
+            this.onDragonClicked?.(dragon.id, event);
+          },
+          onLongPress: () => {
+            const current = this.renderedDragons.get(dragon.id)?.dragon ?? dragon;
+            this.setHoveredDragon(dragon.id, current, dContainer!);
+          },
+          onHoverStart: () => {
+            const current = this.renderedDragons.get(dragon.id)?.dragon ?? dragon;
+            this.setHoveredDragon(dragon.id, current, dContainer!);
+          },
+          onHoverEnd: () => {
+            this.clearHoveredDragon(dragon.id);
+          },
         });
 
         this.container.addChild(dContainer);
@@ -225,8 +242,9 @@ export class DragonRenderer {
       }
       this.applyDragonVisualTransform(dragon.id, dContainer);
       this.renderedDragons.set(dragon.id, { dragon, faceRight });
-      this.redrawDragon(dContainer, dragon, faceRight, statAnims);
+      this.redrawDragon(dContainer, dragon, faceRight, statAnims, previewDeltas?.get(dragon.id), currentTurnNumber);
     }
+    this.refreshHoveredDragonTooltip();
   }
 
   private updateVisuals(): void {
@@ -238,6 +256,36 @@ export class DragonRenderer {
       visual.spawnFrame = Math.min(28, visual.spawnFrame + deltaFrames);
       this.applyDragonVisualTransform(id, container);
     }
+    this.refreshHoveredDragonTooltip();
+  }
+
+  private setHoveredDragon(dragonId: string, dragon: DragonState, container: Container): void {
+    const visual = this.dragonVisuals.get(dragonId);
+    if (visual) visual.hovered = true;
+    this.hoveredDragonId = dragonId;
+    this.drawPreviewOutline(dragon);
+    this.showDragonTooltip(dragon, container.position.x, container.position.y);
+  }
+
+  private clearHoveredDragon(dragonId: string): void {
+    const visual = this.dragonVisuals.get(dragonId);
+    if (visual) visual.hovered = false;
+    if (this.hoveredDragonId !== dragonId) return;
+    this.hoveredDragonId = null;
+    this.previewOutline.clear();
+    this.hideDragonTooltip();
+  }
+
+  private refreshHoveredDragonTooltip(): void {
+    if (!this.hoveredDragonId) return;
+    const rendered = this.renderedDragons.get(this.hoveredDragonId);
+    const container = this.dragonGraphics.get(this.hoveredDragonId);
+    if (!rendered || !container || !container.visible) {
+      this.clearHoveredDragon(this.hoveredDragonId);
+      return;
+    }
+    this.drawPreviewOutline(rendered.dragon);
+    this.showDragonTooltip(rendered.dragon, container.position.x, container.position.y);
   }
 
   private applyDragonVisualTransform(id: string, container: Container): void {
@@ -257,6 +305,8 @@ export class DragonRenderer {
     dragon: DragonState,
     faceRight: boolean,
     statAnims?: Map<string, { scaleX: number; scaleY: number }>,
+    previewDelta?: StatPreviewDelta,
+    currentTurnNumber: number = 0,
   ): void {
     container.removeChildren();
     const size = DRAGON_IMAGE_SIZE;
@@ -287,7 +337,8 @@ export class DragonRenderer {
     const statY = artMaxHeight * 0.36;
     this.drawStatBar(statGraphics, statWidth, statHeight, statY);
 
-    const atkText = this.createStatText(`${dragon.attack}`, 15);
+    const attackDisplay = getDragonAttackDisplay(dragon, currentTurnNumber);
+    const atkText = this.createStatText(attackDisplay.text, attackDisplay.pending ? 17 : 15);
     atkText.position.set(-statWidth * 0.25, statY);
     const attackAnim = statAnims?.get(`dragon:${dragon.id}:attack`);
     if (attackAnim) atkText.scale.set(attackAnim.scaleX, attackAnim.scaleY);
@@ -295,11 +346,13 @@ export class DragonRenderer {
     hpText.position.set(statWidth * 0.25, statY);
     const hpAnim = statAnims?.get(`dragon:${dragon.id}:hp`);
     if (hpAnim) hpText.scale.set(hpAnim.scaleX, hpAnim.scaleY);
+    const previewTexts = this.createPreviewStatTexts(statWidth, statY, previewDelta);
 
     container.addChild(art);
     container.addChild(statGraphics);
     container.addChild(atkText);
     container.addChild(hpText);
+    for (const text of previewTexts) container.addChild(text);
   }
 
   private drawStatBar(g: Graphics, width: number, height: number, centerY: number): void {
@@ -335,8 +388,52 @@ export class DragonRenderer {
     return label;
   }
 
+  private createPreviewStatTexts(statWidth: number, statY: number, previewDelta?: StatPreviewDelta): Text[] {
+    if (!previewDelta) return [];
+    const texts: Text[] = [];
+    if (previewDelta.attackDelta !== 0) {
+      const attack = this.createPreviewText(formatStatDelta(previewDelta.attackDelta), statDeltaColor(previewDelta.attackDelta), 18);
+      attack.anchor.set(0, 0.5);
+      attack.position.set(-statWidth * 0.12, statY);
+      texts.push(attack);
+    }
+    if (previewDelta.willDie) {
+      const hp = this.createPreviewText('X', PREVIEW_NEGATIVE_COLOR, 20);
+      hp.anchor.set(0, 0.5);
+      hp.position.set(statWidth * 0.37, statY);
+      texts.push(hp);
+      return texts;
+    }
+    if (previewDelta.hpDelta !== 0) {
+      const hp = this.createPreviewText(formatStatDelta(previewDelta.hpDelta), statDeltaColor(previewDelta.hpDelta), 18);
+      hp.anchor.set(0, 0.5);
+      hp.position.set(statWidth * 0.37, statY);
+      texts.push(hp);
+    }
+    return texts;
+  }
+
+  private createPreviewText(text: string, fill: number, fontSize: number): Text {
+    const label = new Text({
+      text,
+      style: {
+        fontFamily: 'monospace',
+        fontSize,
+        fill,
+        fontWeight: 'bold',
+        stroke: { color: 0x000000, width: 5 },
+      },
+    });
+    label.eventMode = 'none';
+    return label;
+  }
+
   getDragonAssetName(dragon: DragonState): string | null {
     return this.dragonAssetNames.get(dragon.id) ?? this.resolveDragonAsset(dragon).name;
+  }
+
+  getAttackDisplay(dragon: DragonState, currentTurnNumber: number): { text: string; pending: boolean } {
+    return getDragonAttackDisplay(dragon, currentTurnNumber);
   }
 
   getTemplateAssetNames(): Record<string, string | null> {
@@ -360,6 +457,7 @@ export class DragonRenderer {
         hasTakenDamage: false,
         attackCount: 0,
         respawnAvailableTurn: null,
+        readyToAttackTurn: 0,
         edgeIndex: 0,
       }).name;
     }
@@ -451,16 +549,23 @@ export class DragonRenderer {
     if (!visual) return;
 
     let frame = 0;
+    const windupFrames = 8;
+    const holdFrames = 4;
+    const recoverFrames = 12;
+    const peakScale = 1.36;
+    const holdEndFrame = windupFrames + holdFrames;
+    const totalFrames = holdEndFrame + recoverFrames;
     const tick = () => {
       frame++;
-      if (frame <= 40) {
-        const t = frame / 40;
-        const s = 1 + 0.4 * Math.sin(t * Math.PI / 2);
+      if (frame <= windupFrames) {
+        const t = frame / windupFrames;
+        const s = 1 + (peakScale - 1) * easeOutCubic(t);
         visual.actionScale = s;
-      } else if (frame <= 80) {
-      } else if (frame <= 120) {
-        const t = (frame - 80) / 40;
-        const s = 1.4 - 0.4 * Math.sin(t * Math.PI / 2);
+      } else if (frame <= holdEndFrame) {
+        visual.actionScale = peakScale;
+      } else if (frame <= totalFrames) {
+        const t = (frame - holdEndFrame) / recoverFrames;
+        const s = peakScale - (peakScale - 1) * easeOutCubic(t);
         visual.actionScale = s;
       } else {
         visual.actionScale = 1;
@@ -531,6 +636,18 @@ export class DragonRenderer {
   isTooltipVisible(): boolean {
     return this.tooltip.isVisible();
   }
+
+  hideTooltip(): void {
+    this.hoveredDragonId = null;
+    for (const visual of this.dragonVisuals.values()) visual.hovered = false;
+    this.previewOutline.clear();
+    this.tooltip.hide();
+  }
+}
+
+export function getDragonAttackDisplay(dragon: DragonState, currentTurnNumber: number): { text: string; pending: boolean } {
+  const pending = dragon.readyToAttackTurn > currentTurnNumber;
+  return { text: pending ? '⏳' : `${dragon.attack}`, pending };
 }
 
 function assetStem(path: string): string {

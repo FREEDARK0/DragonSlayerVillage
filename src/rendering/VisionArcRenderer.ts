@@ -1,5 +1,5 @@
 import { Container, Graphics } from 'pixi.js';
-import { GameRenderer } from './GameRenderer';
+import { GameRenderer, RenderLayer } from './GameRenderer';
 import { VisionArc } from '../core/VisionArc';
 import { sectorStartAngle, sectorEndAngle, SECTOR_COUNT } from '../utils/SectorUtils';
 
@@ -15,7 +15,7 @@ export class VisionArcRenderer {
     this.outlineGraphics = new Graphics();
     this.container.addChild(this.fillGraphics);
     this.container.addChild(this.outlineGraphics);
-    renderer.getLayer(3).addChild(this.container);
+    renderer.getLayer(RenderLayer.VISION_ARC).addChild(this.container);
   }
 
   render(arc: VisionArc | null): void {
